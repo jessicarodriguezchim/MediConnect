@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1035194485265",
+    "project_id": "doctorappointmentapp-efc65",
+    "storage_bucket": "doctorappointmentapp-efc65.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1035194485265:android:c5ba0145125c2dd5da3fb0",
+        "android_client_info": {
+          "package_name": "com.example.citas_medicas"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCM2pHvJlMAOf44mG2Ab8GSIWfkZYALqvA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
