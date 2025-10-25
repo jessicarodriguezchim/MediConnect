@@ -4,27 +4,26 @@ import 'profile_page.dart';
 import 'login_page.dart';
 
 class Routes {
+  static const String login = '/login';
+  static const String home = '/home';
+  static const String profile = '/profile';
 
-      static const String login = '/login';
-      static const String home = '/home';
-      static const String profile = '/profile';
-
-      static Route <dynamic> generateRoute(RouteSettings settings) {
-        switch (settings.name) {
-          case login:
-            return MaterialPageRoute(builder: (_) => LoginPage());
-          case home:
-            return MaterialPageRoute(builder: (_) => const HomePage());
-          case profile:
-            return MaterialPageRoute(builder: (_) => const ProfilePage());
-          default:
-            return MaterialPageRoute(
-              builder: (_) => Scaffold(
-                body: Center(
-                  child: Text('No route defined for ${settings.name}'),
-                ),
-              ),
-            );
-        }
-      } 
+  static Route<dynamic> generateRoute(RouteSettings settings) {
+    switch (settings.name) {
+      case login:
+        return MaterialPageRoute(builder: (_) => LoginPage());
+      case home:
+        return MaterialPageRoute(builder: (_) => const HomePage());
+      case profile:
+        return MaterialPageRoute(builder: (_) => const ProfilePage());
+      default:
+        return MaterialPageRoute(
+          builder: (_) => Scaffold(
+            body: Center(
+              child: Text('No route defined for ${settings.name}'),
+            ),
+          ),
+        );
+    }
   }
+}

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'routes.dart';
 import 'messages_page.dart';
 import 'settings_page.dart';
@@ -15,17 +16,46 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   int _selectedIndex = 0;
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  List<Map<String, dynamic>> _specialists = [];
+  bool _isLoading = true;
+  String? _errorMessage;
 
   late final List<Widget> _pages;
 
   @override
   void initState() {
     super.initState();
-    _pages = [
+    /*_pages = [
       _buildHomeContent(),
       const MessagesPage(),
       const SettingsPage(),
     ];
+    */
+    _loadSpecialists();
+  }
+
+  Future<void> _loadSpecialists() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final snapshot = await FirebaseFirestore.instance.collection('medicos').get();
+      setState(() {
+        _specialists = snapshot.docs.map((doc) {
+          final data = doc.data();
+          data['id'] = doc.id;
+          return data;
+        }).toList();
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Error al cargar especialistas: $e. Verifica tu conexión e intenta de nuevo.';
+        _isLoading = false;
+      });
+    }
   }
 
   void _onItemTapped(int index) {
@@ -99,13 +129,11 @@ class _HomePageState extends State<HomePage> {
                     colors: [Color(0xFF4CAF50), Color(0xFF81C784)],
                   ),
                   onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const CalendarPage(medicoId: 'id_del_medico')),                
-                      );
-                    },
-                  ),
-
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Selecciona un especialista abajo')),
+                    );
+                  },
+                ),
                 _optionCard(
                   icon: Icons.healing_rounded,
                   title: 'Consejos\nMédicos',
@@ -151,49 +179,7 @@ class _HomePageState extends State<HomePage> {
             ),
             const SizedBox(height: 16),
             _specialistList(),
-            const SizedBox(height: 40),
-            Center(
-              child: Container(
-                height: 56,
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  gradient: LinearGradient(
-                    colors: [Colors.red[400]!, Colors.red[600]!],
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.red.withOpacity(0.3),
-                      blurRadius: 12,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
-                ),
-                child: ElevatedButton.icon(
-                  icon: const Icon(Icons.logout_rounded, size: 24),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.transparent,
-                    shadowColor: Colors.transparent,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                  ),
-                  onPressed: () async {
-                    await FirebaseAuth.instance.signOut();
-                    Navigator.pushReplacementNamed(context, Routes.login);
-                  },
-                  label: const Text(
-                    'Cerrar Sesión',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 20), // Reducido el padding inferior
           ],
         ),
       ),
@@ -257,16 +243,42 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _specialistList() {
-    final specialists = [
-      {'name': 'Dr. Pérez', 'specialty': 'Cardiología', 'icon': Icons.favorite, 'color': Colors.red},
-      {'name': 'Dra. Gómez', 'specialty': 'Pediatría', 'icon': Icons.child_care, 'color': Colors.pink},
-      {'name': 'Dr. Hernández', 'specialty': 'Neurología', 'icon': Icons.psychology, 'color': Colors.purple},
-      {'name': 'Dra. Ruiz', 'specialty': 'Dermatología', 'icon': Icons.face, 'color': Colors.orange},
-      {'name': 'Dr. López', 'specialty': 'Ortopedia', 'icon': Icons.accessible, 'color': Colors.blue},
-    ];
+    if (_isLoading) {
+      return const Center(
+        child: Column(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('Cargando especialistas...', style: TextStyle(color: Colors.grey)),
+          ],
+        ),
+      );
+    }
+
+    if (_errorMessage != null) {
+      return Center(
+        child: Column(
+          children: [
+            Text(_errorMessage!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.red)),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _loadSpecialists,
+              child: const Text('Reintentar'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_specialists.isEmpty) {
+      return const Center(
+        child: Text('No hay especialistas disponibles.', style: TextStyle(color: Colors.grey)),
+      );
+    }
 
     return Column(
-      children: specialists.map((specialist) {
+      children: _specialists.map((specialist) {
+        final color = Color(int.parse(specialist['color'] ?? '0xFF2196F3'));
         return Container(
           margin: const EdgeInsets.only(bottom: 12),
           decoration: BoxDecoration(
@@ -285,21 +297,21 @@ class _HomePageState extends State<HomePage> {
             leading: Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: (specialist['color'] as Color).withOpacity(0.1),
+                color: color.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
-                specialist['icon'] as IconData,
-                color: specialist['color'] as Color,
+                IconData(int.parse(specialist['icono'] ?? '0xe0b0'), fontFamily: 'MaterialIcons'),
+                color: color,
                 size: 28,
               ),
             ),
             title: Text(
-              specialist['name'] as String,
+              specialist['nombre'] ?? 'Sin nombre',
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
             subtitle: Text(
-              specialist['specialty'] as String,
+              specialist['especialidad'] ?? 'Sin especialidad',
               style: TextStyle(color: Colors.grey[600], fontSize: 14),
             ),
             trailing: Icon(
@@ -307,6 +319,14 @@ class _HomePageState extends State<HomePage> {
               color: Colors.grey[400],
               size: 18,
             ),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => CalendarPage(medicoId: specialist['id']),
+                ),
+              );
+            },
           ),
         );
       }).toList(),
@@ -330,7 +350,11 @@ class _HomePageState extends State<HomePage> {
         ),
         centerTitle: true,
       ),
-      body: _pages[_selectedIndex],
+      body: _selectedIndex == 0
+        ? _buildHomeContent()
+        : _selectedIndex == 1
+            ? const MessagesPage()
+            : const SettingsPage(),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           boxShadow: [
