@@ -514,67 +514,133 @@ class _CitasPageState extends State<CitasPage> {
                           final data = cita.data() as Map<String, dynamic>;
                           final estado = data['estado'] ?? 'Pendiente';
 
-                          return Card(
-                            margin: const EdgeInsets.only(bottom: 12),
-                            elevation: 2,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
+                          return Dismissible(
+                            key: Key(cita.id),
+                            direction: DismissDirection.endToStart,
+                            background: Container(
+                              alignment: Alignment.centerRight,
+                              padding: const EdgeInsets.only(right: 20),
+                              margin: const EdgeInsets.only(bottom: 12),
+                              decoration: BoxDecoration(
+                                color: Colors.red,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Icon(
+                                Icons.delete,
+                                color: Colors.white,
+                                size: 32,
+                              ),
                             ),
-                            child: ListTile(
-                              contentPadding: const EdgeInsets.all(12),
-                              leading: CircleAvatar(
-                                backgroundColor: estado == 'Pendiente'
-                                    ? Colors.orange
-                                    : Colors.green,
-                                child: const Icon(
-                                  Icons.medical_services,
-                                  color: Colors.white,
-                                ),
-                              ),
-                              title: Text(
-                                data['clinica'] ?? 'Sin clínica',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                ),
-                              ),
-                              subtitle: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const SizedBox(height: 4),
-                                  Text('📋 ${data['motivo'] ?? 'Sin motivo'}'),
-                                  const SizedBox(height: 2),
-                                  Text('👨‍⚕️ ${data['medicoNombre'] ?? 'Sin médico'}'),
-                                  Text('📅 ${_formatearFecha(data['fechaCita'])}'),
-                                  Text('⏰ ${data['horaInicio']} - ${data['horaFin']}'),
-                                  const SizedBox(height: 4),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 4,
+                            confirmDismiss: (direction) async {
+                              // Mostrar diálogo de confirmación
+                              final confirm = await showDialog<bool>(
+                                context: context,
+                                builder: (_) => AlertDialog(
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  title: const Text('Eliminar cita'),
+                                  content: const Text(
+                                    '¿Estás seguro de que deseas eliminar esta cita? Esta acción no se puede deshacer.',
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(context, false),
+                                      child: const Text('Cancelar'),
                                     ),
-                                    decoration: BoxDecoration(
-                                      color: estado == 'Pendiente'
-                                          ? Colors.orange.shade100
-                                          : Colors.green.shade100,
-                                      borderRadius: BorderRadius.circular(4),
+                                    ElevatedButton(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.red,
+                                      ),
+                                      onPressed: () => Navigator.pop(context, true),
+                                      child: const Text('Eliminar'),
                                     ),
-                                    child: Text(
-                                      estado,
-                                      style: TextStyle(
-                                        fontSize: 12,
+                                  ],
+                                ),
+                              );
+                              return confirm ?? false;
+                            },
+                            onDismissed: (direction) async {
+                              // Eliminar la cita de Firebase
+                              try {
+                                await _firestore.collection('citas').doc(cita.id).delete();
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Cita eliminada correctamente'),
+                                      backgroundColor: Colors.red,
+                                      duration: Duration(seconds: 2),
+                                    ),
+                                  );
+                                }
+                              } catch (e) {
+                                if (mounted) {
+                                  _mostrarError('Error al eliminar cita: $e');
+                                }
+                              }
+                            },
+                            child: Card(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              elevation: 2,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: ListTile(
+                                contentPadding: const EdgeInsets.all(12),
+                                leading: CircleAvatar(
+                                  backgroundColor: estado == 'Pendiente'
+                                      ? Colors.orange
+                                      : Colors.green,
+                                  child: const Icon(
+                                    Icons.medical_services,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                title: Text(
+                                  data['clinica'] ?? 'Sin clínica',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                subtitle: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const SizedBox(height: 4),
+                                    Text('📋 ${data['motivo'] ?? 'Sin motivo'}'),
+                                    const SizedBox(height: 2),
+                                    Text('👨‍⚕️ ${data['medicoNombre'] ?? 'Sin médico'}'),
+                                    Text('📅 ${_formatearFecha(data['fechaCita'])}'),
+                                    Text('⏰ ${data['horaInicio']} - ${data['horaFin']}'),
+                                    const SizedBox(height: 4),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
                                         color: estado == 'Pendiente'
-                                            ? Colors.orange.shade900
-                                            : Colors.green.shade900,
-                                        fontWeight: FontWeight.bold,
+                                            ? Colors.orange.shade100
+                                            : Colors.green.shade100,
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        estado,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: estado == 'Pendiente'
+                                              ? Colors.orange.shade900
+                                              : Colors.green.shade900,
+                                          fontWeight: FontWeight.bold,
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                              trailing: IconButton(
-                                icon: const Icon(Icons.cancel, color: Colors.red),
-                                onPressed: () => _cancelarCita(cita.id),
+                                  ],
+                                ),
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.cancel, color: Colors.red),
+                                  onPressed: () => _cancelarCita(cita.id),
+                                ),
                               ),
                             ),
                           );

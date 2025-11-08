@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'routes.dart';
 import 'messages_page.dart';
 import 'settings_page.dart';
 import 'calendar_page.dart';
@@ -19,19 +18,14 @@ class _HomePageState extends State<HomePage> {
   List<Map<String, dynamic>> _specialists = [];
   bool _isLoading = true;
   String? _errorMessage;
-
-  late final List<Widget> _pages;
+  Map<String, dynamic>? _userData;
+  bool _isLoadingUserData = false;
 
   @override
   void initState() {
     super.initState();
-    /*_pages = [
-      _buildHomeContent(),
-      const MessagesPage(),
-      const SettingsPage(),
-    ];
-    */
     _loadSpecialists();
+    _loadUserData();
   }
 
   Future<void> _loadSpecialists() async {
@@ -58,6 +52,56 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _loadUserData() async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    setState(() {
+      _isLoadingUserData = true;
+    });
+
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+
+      if (doc.exists) {
+        setState(() {
+          _userData = doc.data();
+          _isLoadingUserData = false;
+        });
+      } else {
+        setState(() {
+          _userData = null;
+          _isLoadingUserData = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _isLoadingUserData = false;
+      });
+    }
+  }
+
+  Future<void> _refreshData() async {
+    await Future.wait([
+      _loadSpecialists(),
+      _loadUserData(),
+    ]);
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Datos actualizados'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
   void _onItemTapped(int index) {
     setState(() {
       _selectedIndex = index;
@@ -66,7 +110,15 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildHomeContent() {
     final user = _auth.currentUser;
-    final userName = user?.email?.split('@')[0] ?? 'Usuario';
+    // Obtener el nombre del usuario desde Firestore o usar el email como fallback
+    String userName = 'Usuario';
+    if (_userData != null && _userData!['displayName'] != null && _userData!['displayName'].toString().isNotEmpty) {
+      userName = _userData!['displayName'];
+    } else if (_userData != null && _userData!['nombre'] != null && _userData!['nombre'].toString().isNotEmpty) {
+      userName = _userData!['nombre'];
+    } else if (user?.email != null) {
+      userName = user!.email!.split('@')[0];
+    }
 
     return Container(
       decoration: BoxDecoration(
@@ -76,48 +128,53 @@ class _HomePageState extends State<HomePage> {
           colors: [Colors.blue.shade50, Colors.white],
         ),
       ),
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 20),
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF1976D2), Color(0xFF42A5F5)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.blue.withOpacity(0.3),
-                    blurRadius: 15,
-                    offset: const Offset(0, 8),
+      //Gestor RefreshIndicator
+      child: RefreshIndicator(
+        onRefresh: _refreshData,
+        color: const Color(0xFF1976D2),
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 20),
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF1976D2), Color(0xFF42A5F5)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '¡Hola, $userName! 👋',
-                    style: const TextStyle(
-                      fontSize: 26,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.blue.withOpacity(0.3),
+                      blurRadius: 15,
+                      offset: const Offset(0, 8),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    '¿En qué podemos ayudarte hoy?',
-                    style: TextStyle(fontSize: 16, color: Colors.white70),
-                  ),
-                ],
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '¡Hola, $userName! 👋',
+                      style: const TextStyle(
+                        fontSize: 26,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      '¿En qué podemos ayudarte hoy?',
+                      style: TextStyle(fontSize: 16, color: Colors.white70),
+                    ),
+                  ],
+                ),
               ),
-            ),
             const SizedBox(height: 30),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -181,6 +238,7 @@ class _HomePageState extends State<HomePage> {
             _specialistList(),
             const SizedBox(height: 20), // Reducido el padding inferior
           ],
+          ),
         ),
       ),
     );
@@ -192,6 +250,7 @@ class _HomePageState extends State<HomePage> {
     required Gradient gradient,
     required VoidCallback onTap,
   }) {
+    //gesto onTap para navegar a la pagina de agendar cita
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -210,6 +269,7 @@ class _HomePageState extends State<HomePage> {
         ),
         child: Material(
           color: Colors.transparent,
+          //gestor tactil
           child: InkWell(
             onTap: onTap,
             borderRadius: BorderRadius.circular(20),
@@ -349,6 +409,24 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
         centerTitle: true,
+        actions: _selectedIndex == 0
+            ? [
+                IconButton(
+                  icon: _isLoadingUserData
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF1976D2)),
+                          ),
+                        )
+                      : const Icon(Icons.refresh_rounded, color: Color(0xFF1976D2)),
+                  onPressed: _isLoadingUserData ? null : _refreshData,
+                  tooltip: 'Recargar datos',
+                ),
+              ]
+            : null,
       ),
       body: _selectedIndex == 0
         ? _buildHomeContent()
