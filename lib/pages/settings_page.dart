@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+import '../routes.dart';
 import 'profile_page.dart';
 import 'privacy_page.dart';
 import 'about_page.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'routes.dart';
+
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});

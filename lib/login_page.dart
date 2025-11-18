@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'routes.dart';
 
 class LoginPage extends StatefulWidget{
@@ -14,7 +15,156 @@ class _LoginPageState extends State<LoginPage> {
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController(); 
   final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  String _selectedRole = 'patient';
   bool _obscurePassword = true;
+  bool _isLoading = false;
+
+  @override
+  void dispose(){
+    emailController.dispose();
+    passwordController.dispose();
+    super.dispose();
+  }
+// MODIFICADO: Guardar datos del usuario en Firestore con rol
+  Future<void> saveUserData(User user) async {
+    try {
+      final userRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
+
+      await userRef.set({
+        'email': user.email,
+        'uid': user.uid,
+        'role': _selectedRole, // AGREGADO: Guardar el rol
+        'displayName': user.displayName ?? user.email?.split('@')[0] ?? 'Usuario',
+        'lastLogin': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('Error al guardar datos del usuario: $e');
+    }
+  }
+
+  Future<void> _handleLogin() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      UserCredential userCredential = await _auth.signInWithEmailAndPassword(
+        email: emailController.text.trim(),
+        password: passwordController.text.trim(),
+      );
+
+      await saveUserData(userCredential.user!);
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('¡Bienvenido ${userCredential.user!.email}!'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      // MODIFICADO: Navegación basada en rol
+      if (_selectedRole == 'doctor') {
+        Navigator.pushReplacementNamed(context, Routes.dashboard);
+      } else {
+        Navigator.pushReplacementNamed(context, Routes.home);
+      }
+
+    } on FirebaseAuthException catch (e) {
+      String message = _getErrorMessage(e.code);
+      
+      if (!mounted) return;
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error inesperado: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  String _getErrorMessage(String code) {
+    switch (code) {
+      case 'user-not-found':
+        return '❌ Usuario no encontrado. Verifica tu correo.';
+      case 'wrong-password':
+        return '❌ Contraseña incorrecta.';
+      case 'invalid-email':
+        return '❌ Correo electrónico inválido.';
+      case 'user-disabled':
+        return '❌ Esta cuenta ha sido deshabilitada.';
+      case 'too-many-requests':
+        return '❌ Demasiados intentos. Intenta más tarde.';
+      case 'network-request-failed':
+        return '❌ Error de conexión. Verifica tu internet.';
+      default:
+        return '❌ Error al iniciar sesión. Intenta nuevamente.';
+    }
+  }
+
+  Future<void> _handleLogout() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Cerrar Sesión'),
+        content: const Text('¿Estás seguro de que deseas cerrar sesión?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Cerrar Sesión'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      await _auth.signOut();
+      
+      if (!mounted) return;
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('✅ Sesión cerrada correctamente'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error al cerrar sesión: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -53,7 +203,32 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 32),
+                    const SizedBox(height: 16),
+
+                    // Selector de rol (Paciente / Médico)
+                    DropdownButtonFormField<String>(
+                      value: _selectedRole,
+                      decoration: InputDecoration(
+                        labelText: 'Rol',
+                        labelStyle: TextStyle(color: Colors.grey[600]),
+                        prefixIcon: Icon(Icons.badge_outlined, color: Colors.blue[700]),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide.none,
+                        ),
+                        filled: true,
+                        fillColor: Colors.white,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'patient', child: Text('Paciente')),
+                        DropdownMenuItem(value: 'doctor', child: Text('Médico')),
+                      ],
+                      onChanged: (v) {
+                        if (v != null) setState(() => _selectedRole = v);
+                      },
+                    ),
+                    const SizedBox(height: 24),
                     
                     // Título
                     const Text(
@@ -184,60 +359,7 @@ class _LoginPageState extends State<LoginPage> {
                         ],
                       ),
                       child: ElevatedButton(
-                        onPressed: () async {
-                          if (_formKey.currentState!.validate()) {
-                            try {
-                              // Intentar iniciar sesión
-                              UserCredential userCredential = await _auth.signInWithEmailAndPassword(
-                                email: emailController.text.trim(),
-                                password: passwordController.text.trim(),
-                              );
-
-                              // Mostrar mensaje de bienvenida
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Bienvenido ${userCredential.user!.email}'),
-                                  backgroundColor: Colors.green[600],
-                                  behavior: SnackBarBehavior.floating,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                ),
-                              );
-
-                              //Redireccionar a la página principal
-                              Navigator.pushReplacementNamed(
-                                context, 
-                                Routes.home,
-                              );
-                            } on FirebaseAuthException catch (e) {
-                              String message = '';
-                              if (e.code == 'user-not-found') {
-                                message = 'Usuario no encontrado.';
-                              } else if (e.code == 'wrong-password') {
-                                message = 'Contraseña incorrecta.';
-                              } else {
-                                message = e.message!;
-                              }
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(message),
-                                  backgroundColor: Colors.red[600],
-                                  behavior: SnackBarBehavior.floating,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                ),
-                              );
-                            } catch (e) {
-                              // Manejar otros errores
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Error: ${e.toString()}'),
-                                  backgroundColor: Colors.red[600],
-                                  behavior: SnackBarBehavior.floating,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                ),
-                              );
-                            }
-                          }
-                        },
+                        onPressed: _isLoading ? null : _handleLogin,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.transparent,
                           shadowColor: Colors.transparent,
@@ -245,15 +367,24 @@ class _LoginPageState extends State<LoginPage> {
                             borderRadius: BorderRadius.circular(16),
                           ),
                         ),
-                        child: const Text(
-                          'Iniciar Sesión',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
+                        child: _isLoading
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text(
+                                'Iniciar Sesión',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
                       ),
                     ),
                     const SizedBox(height: 16),

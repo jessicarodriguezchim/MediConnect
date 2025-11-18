@@ -18,11 +18,12 @@ class _ProfilePageState extends State<ProfilePage> {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   bool _isLoading = false;
   Map<String, dynamic>? _userData;
+  String _selectedRole = 'patient'; // Rol actual del usuario (doctor o patient)
 
   @override
   void initState() {
     super.initState();
-    _loadUserData();
+  _loadUserData(); // Carga los datos y el rol del usuario al iniciar
   }
 
   @override
@@ -43,7 +44,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
     try {
       final doc = await FirebaseFirestore.instance
-          .collection('users')
+          .collection('usuarios')
           .doc(user.uid)
           .get();
 
@@ -54,6 +55,7 @@ class _ProfilePageState extends State<ProfilePage> {
           _nameController.text = data['displayName'] ?? data['nombre'] ?? '';
           _emailController.text = user.email ?? '';
           _phoneController.text = data['telefono'] ?? data['phone'] ?? '';
+          _selectedRole = data['role'] ?? 'patient'; // Guardamos el rol
           _isLoading = false;
         });
       } else {
@@ -80,14 +82,16 @@ class _ProfilePageState extends State<ProfilePage> {
     });
 
     try {
+      // Guarda todos los datos del perfil, incluyendo el rol
       await FirebaseFirestore.instance
-          .collection('users')
+          .collection('usuarios')
           .doc(user.uid)
           .set({
         'displayName': _nameController.text.trim(),
         'nombre': _nameController.text.trim(),
         'email': _emailController.text.trim(),
         'telefono': _phoneController.text.trim(),
+        'role': _selectedRole, // Guardamos el rol actualizado
         'phone': _phoneController.text.trim(),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
@@ -282,7 +286,31 @@ class _ProfilePageState extends State<ProfilePage> {
                       hint: 'Número de teléfono',
                       keyboardType: TextInputType.phone,
                     ),
-                    const SizedBox(height: 40),
+                    const SizedBox(height: 16),
+
+                    // Selector de rol para el usuario
+                    DropdownButtonFormField<String>(
+                      value: _selectedRole,
+                      decoration: InputDecoration(
+                        labelText: 'Rol',
+                        prefixIcon: const Icon(Icons.badge_outlined),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        filled: true,
+                        fillColor: Colors.white,
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'patient', child: Text('Paciente')),
+                        DropdownMenuItem(value: 'doctor', child: Text('Médico')),
+                      ],
+                      onChanged: (v) {
+                        // Cambia el rol seleccionado y lo guarda en Firestore
+                        if (v != null) setState(() => _selectedRole = v);
+                      },
+                    ),
+
+                    const SizedBox(height: 24),
                     // Save button
                     Container(
                       height: 56,

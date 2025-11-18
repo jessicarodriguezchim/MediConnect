@@ -1,17 +1,26 @@
 import 'package:flutter/material.dart';
+import 'package:url_strategy/url_strategy.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'firebase_options.dart';
+import 'pages/firebase_options.dart';
 import 'routes.dart';
+import 'utils/crear_datos_prueba.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Use path URL strategy so web URLs are clean (no #).
+  // Note: when deploying to production, configure server to rewrite requests to index.html.
+  setPathUrlStrategy();
 
   // Inicializa Firebase
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+
+  // DESCOMENTA SOLO PARA POBLAR DATOS DE PRUEBA UNA VEZ
+  // await crearDatosPrueba();
 
   runApp(const MyApp());
 }
@@ -63,6 +72,8 @@ class _LoginPageState extends State<LoginPage> {
   final TextEditingController passwordController = TextEditingController();
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
+  String _selectedRole = 'patient';
+
   bool _obscurePassword = true;
   bool _isLoading = false;
 
@@ -81,6 +92,7 @@ class _LoginPageState extends State<LoginPage> {
       await userRef.set({
         'email': user.email,
         'uid': user.uid,
+        'role': _selectedRole,
         'lastLogin': FieldValue.serverTimestamp(),
         'displayName': user.displayName ?? user.email?.split('@')[0] ?? 'Usuario',
       }, SetOptions(merge: true));
@@ -325,7 +337,29 @@ class _LoginPageState extends State<LoginPage> {
                               return null;
                             },
                           ),
-                          const SizedBox(height: 24),
+                            const SizedBox(height: 12),
+
+                            // Selector de rol (Paciente / Médico)
+                            DropdownButtonFormField<String>(
+                              value: _selectedRole,
+                              decoration: InputDecoration(
+                                labelText: 'Rol',
+                                prefixIcon: const Icon(Icons.badge_outlined),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                filled: true,
+                                fillColor: Colors.grey[50],
+                              ),
+                              items: const [
+                                DropdownMenuItem(value: 'patient', child: Text('Paciente')),
+                                DropdownMenuItem(value: 'doctor', child: Text('Médico')),
+                              ],
+                              onChanged: (v) {
+                                if (v != null) setState(() => _selectedRole = v);
+                              },
+                            ),
+                            const SizedBox(height: 24),
 
                           // Botón de iniciar sesión
                           SizedBox(
