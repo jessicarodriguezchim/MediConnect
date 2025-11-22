@@ -6,6 +6,8 @@ import 'pages/settings_page.dart';
 import 'pages/calendar_page.dart';
 import 'routes.dart';
 import 'bloc/dashboard_page.dart';
+import 'services/firebase_service.dart';
+import 'services/firebase_constants.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -17,22 +19,45 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   int _selectedIndex = 0;
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   List<Map<String, dynamic>> _specialists = [];
   bool _isLoading = true;
   String? _errorMessage;
+  String? _userRole;
+  bool _loadingRole = true;
 
   late final List<Widget> _pages;
 
   @override
   void initState() {
     super.initState();
-    /*_pages = [
-      _buildHomeContent(),
-      const MessagesPage(),
-      const SettingsPage(),
-    ];
-    */
+    _loadUserRole();
     _loadSpecialists();
+  }
+
+  Future<void> _loadUserRole() async {
+    final user = FirebaseService.getCurrentUser();
+    if (user == null) {
+      setState(() {
+        _userRole = UserRole.patient;
+        _loadingRole = false;
+      });
+      return;
+    }
+
+    try {
+      // Usar el servicio unificado para obtener el rol
+      final userModel = await FirebaseService.getUser(user.uid);
+      setState(() {
+        _userRole = userModel?.role ?? UserRole.patient;
+        _loadingRole = false;
+      });
+    } catch (e) {
+      setState(() {
+        _userRole = UserRole.patient;
+        _loadingRole = false;
+      });
+    }
   }
 
   Future<void> _loadSpecialists() async {
@@ -42,13 +67,47 @@ class _HomePageState extends State<HomePage> {
     });
 
     try {
-      final snapshot = await FirebaseFirestore.instance.collection('medicos').get();
+      // Obtener médicos desde la colección medicos - SOLO los que tienen uid (doctores reales)
+      // También obtener de usuarios con role='doctor'
+      final medicosSnapshot = await _firestore
+          .collection(FirebaseCollections.medicos)
+          .get();
+      
+      // Filtrar solo documentos que tienen 'uid' (doctores reales), no especialidades
+      final medicosReales = medicosSnapshot.docs.where((doc) {
+        final data = doc.data();
+        return data.containsKey('uid') && data['uid'] != null;
+      }).toList();
+      
+      // También obtener doctores de la colección usuarios
+      final usuariosSnapshot = await _firestore
+          .collection(FirebaseCollections.usuarios)
+          .where('role', isEqualTo: 'doctor')
+          .get();
+      
       setState(() {
-        _specialists = snapshot.docs.map((doc) {
+        // Combinar médicos de ambas colecciones
+        final allSpecialists = <Map<String, dynamic>>[];
+        
+        // Agregar médicos de la colección medicos
+        for (var doc in medicosReales) {
           final data = doc.data();
           data['id'] = doc.id;
-          return data;
-        }).toList();
+          allSpecialists.add(data);
+        }
+        
+        // Agregar médicos de la colección usuarios (evitar duplicados)
+        for (var doc in usuariosSnapshot.docs) {
+          final data = doc.data();
+          final uid = data['uid'] as String?;
+          // Solo agregar si no existe ya en la lista
+          if (uid != null && !allSpecialists.any((s) => s['uid'] == uid)) {
+            data['id'] = doc.id;
+            allSpecialists.add(data);
+          }
+        }
+        
+        _specialists = allSpecialists;
         _isLoading = false;
       });
     } catch (e) {
@@ -120,42 +179,12 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
             const SizedBox(height: 30),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _optionCard(
-                  icon: Icons.calendar_month_rounded,
-                  title: 'Agendar\nCita',
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF4CAF50), Color(0xFF81C784)],
-                  ),
-                  onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Selecciona un especialista abajo')),
-                    );
-                  },
-                ),
-                _optionCard(
-                  icon: Icons.healing_rounded,
-                  title: 'Consejos\nMédicos',
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFFFF7043), Color(0xFFFFAB91)],
-                  ),
-                  onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Text('Consejos de salud próximamente'),
-                        backgroundColor: Colors.orange[700],
-                        behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ],
-            ),
+            // Mostrar widgets diferentes según el rol
+            _loadingRole
+                ? const Center(child: CircularProgressIndicator())
+                : _userRole == 'doctor'
+                    ? _buildDoctorOptions()
+                    : _buildPatientOptions(),
             const SizedBox(height: 35),
             Row(
               children: [
@@ -184,6 +213,87 @@ class _HomePageState extends State<HomePage> {
           ],
         ),
       ),
+    );
+  }
+
+  // Widgets para pacientes
+  Widget _buildPatientOptions() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        _optionCard(
+          icon: Icons.calendar_month_rounded,
+          title: 'Agendar\nCita',
+          gradient: const LinearGradient(
+            colors: [Color(0xFF4CAF50), Color(0xFF81C784)],
+          ),
+          onTap: () {
+            if (_specialists.isNotEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Selecciona un especialista abajo')),
+              );
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('No hay especialistas disponibles'),
+                  backgroundColor: Colors.orange,
+                ),
+              );
+            }
+          },
+        ),
+        _optionCard(
+          icon: Icons.healing_rounded,
+          title: 'Consejos\nMédicos',
+          gradient: const LinearGradient(
+            colors: [Color(0xFFFF7043), Color(0xFFFFAB91)],
+          ),
+          onTap: () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Text('Consejos de salud próximamente'),
+                backgroundColor: Colors.orange[700],
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  // Widgets para médicos
+  Widget _buildDoctorOptions() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        _optionCard(
+          icon: Icons.dashboard_rounded,
+          title: 'Ver\nCitas',
+          gradient: const LinearGradient(
+            colors: [Color(0xFF1976D2), Color(0xFF42A5F5)],
+          ),
+          onTap: () {
+            Navigator.pushNamed(
+              context,
+              Routes.dashboard,
+            );
+          },
+        ),
+        _optionCard(
+          icon: Icons.analytics_rounded,
+          title: 'Estadísticas',
+          gradient: const LinearGradient(
+            colors: [Color(0xFF9C27B0), Color(0xFFBA68C8)],
+          ),
+          onTap: () {
+            Navigator.pushNamed(context, Routes.graphics);
+          },
+        ),
+      ],
     );
   }
 

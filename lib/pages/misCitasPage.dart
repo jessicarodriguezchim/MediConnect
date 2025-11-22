@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import '../services/firebase_service.dart';
+import '../services/firebase_constants.dart';
+import '../models/appointment_model.dart';
 
 class CitasPage extends StatefulWidget {
   const CitasPage({super.key});
@@ -13,6 +16,7 @@ class CitasPage extends StatefulWidget {
 class _CitasPageState extends State<CitasPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   late String _userId;
+  String? _patientName;
 
   DateTime _selectedDate = DateTime.now().add(const Duration(days: 1));
   TimeOfDay? _selectedTime;
@@ -39,15 +43,19 @@ class _CitasPageState extends State<CitasPage> {
   @override
   void initState() {
     super.initState();
-    _initUser();
+    _initUser(); // Llamar sin await ya que initState no puede ser async
   }
 
-  void _initUser() {
-    final user = FirebaseAuth.instance.currentUser;
+  Future<void> _initUser() async {
+    final user = FirebaseService.getCurrentUser();
     if (user != null) {
       _userId = user.uid;
+      // Obtener información del paciente desde Firestore
+      final userModel = await FirebaseService.getUser(user.uid);
+      _patientName = userModel?.displayName ?? userModel?.nombre ?? 'Paciente';
     } else {
       _userId = 'usuario_anonimo_${DateTime.now().millisecondsSinceEpoch}';
+      _patientName = 'Paciente';
     }
   }
 
@@ -208,25 +216,44 @@ class _CitasPageState extends State<CitasPage> {
 
     setState(() => _isLoading = true);
 
-    final fechaCita = DateTime(
-      _selectedDate.year,
-      _selectedDate.month,
-      _selectedDate.day,
-    );
-
     try {
-      await _firestore.collection('citas').add({
-        'pacienteId': _userId,
-        'clinica': _clinicaSeleccionada,
-        'motivo': _motivoSeleccionado,
-        'fechaCita': Timestamp.fromDate(fechaCita),
-        'horaInicio': '${_selectedTime!.hour.toString().padLeft(2, '0')}:${_selectedTime!.minute.toString().padLeft(2, '0')}',
-        'horaFin': '${(_selectedTime!.hour + 1).toString().padLeft(2, '0')}:${_selectedTime!.minute.toString().padLeft(2, '0')}',
-        'estado': 'Pendiente',
-        'medicoNombre': 'Por asignar',
-        'medicoId': '',
-        'instruccionesPrevias': '',
-      });
+      // Crear fecha completa con hora
+      final fechaCita = DateTime(
+        _selectedDate.year,
+        _selectedDate.month,
+        _selectedDate.day,
+        _selectedTime!.hour,
+        _selectedTime!.minute,
+      );
+
+      // Formatear hora como string (HH:mm)
+      final horaFormateada = '${_selectedTime!.hour.toString().padLeft(2, '0')}:${_selectedTime!.minute.toString().padLeft(2, '0')}';
+
+      // Crear AppointmentModel con el formato correcto
+      // _userId es el UID del usuario, que también es el docId en /usuarios
+      final appointment = AppointmentModel(
+        id: '', // Se asignará al crear en Firebase
+        doctorId: '', // Por asignar (igual a doctorDocId)
+        patientId: _userId, // Para Dashboard (igual a patientDocId)
+        doctorDocId: '', // Por asignar
+        patientDocId: _userId, // ID del documento del paciente en /usuarios
+        doctorName: 'Por asignar',
+        patientName: _patientName ?? 'Paciente',
+        specialty: _clinicaSeleccionada ?? 'General', // Usar clínica como especialidad
+        date: fechaCita,
+        time: horaFormateada,
+        status: 'pending', // Estado pendiente
+        notes: _motivoSeleccionado, // Guardar motivo en notes
+        symptoms: null,
+        createdAt: DateTime.now(),
+        updatedAt: null,
+      );
+
+      // Guardar la cita en Firebase
+      final map = appointment.toMap();
+      map.remove('id'); // Firestore generará el ID
+      final docRef = await _firestore.collection('appointments').add(map);
+      await docRef.update({'id': docRef.id});
 
       setState(() {
         _selectedTime = null;
@@ -236,19 +263,22 @@ class _CitasPageState extends State<CitasPage> {
         _isLoading = false;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('✅ Cita agendada correctamente'),
-          backgroundColor: Colors.green,
-          duration: Duration(seconds: 2),
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Cita agendada correctamente'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
     } catch (e) {
       setState(() => _isLoading = false);
       _mostrarError('Error al agendar cita: $e');
     }
   }
 
+  /// Cancela una cita cambiando su estado a 'cancelled'
   Future<void> _cancelarCita(String citaId) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -273,15 +303,66 @@ class _CitasPageState extends State<CitasPage> {
     if (confirm != true) return;
 
     try {
-      await _firestore.collection('citas').doc(citaId).delete();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Cita cancelada'),
-          backgroundColor: Colors.orange,
-        ),
+      // Usar el servicio unificado para ACTUALIZAR el estado (no eliminar)
+      await FirebaseService.updateAppointmentStatus(
+        citaId,
+        'cancelled',
       );
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Cita cancelada'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
     } catch (e) {
       _mostrarError('Error al cancelar: $e');
+    }
+  }
+
+  /// Confirma una cita cambiando su estado a 'confirmed'
+  Future<void> _confirmarCita(String citaId) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Confirmar cita'),
+        content: const Text('¿Deseas confirmar esta cita?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('No'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Sí, confirmar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      // Usar el servicio unificado para actualizar el estado
+      await FirebaseService.updateAppointmentStatus(
+        citaId,
+        'confirmed',
+      );
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Cita confirmada'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      _mostrarError('Error al confirmar: $e');
     }
   }
 
@@ -295,11 +376,22 @@ class _CitasPageState extends State<CitasPage> {
     );
   }
 
-  Stream<QuerySnapshot> _misCitasStream() {
+  /// Obtiene el stream de citas del paciente usando el servicio unificado
+  /// 
+  /// Retorna un Stream de AppointmentModel filtrado por patientId
+  Stream<List<AppointmentModel>> _misCitasStream() {
+    // Usar el servicio unificado para obtener citas del paciente
+    // Nota: getAppointmentsStream está diseñado para médicos, pero podemos filtrar por patientId
+    // Alternativamente, podemos usar una query directa pero con la colección correcta
     return _firestore
-        .collection('citas')
-        .where('pacienteId', isEqualTo: _userId)
-        .snapshots();
+        .collection(FirebaseCollections.appointments)
+        .where('patientDocId', isEqualTo: _userId)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs
+          .map((doc) => AppointmentModel.fromFirestore(doc))
+          .toList();
+    });
   }
 
   String _formatearFecha(Timestamp? timestamp) {
@@ -456,7 +548,7 @@ class _CitasPageState extends State<CitasPage> {
                   ),
                   const SizedBox(height: 12),
                   
-                  StreamBuilder<QuerySnapshot>(
+                  StreamBuilder<List<AppointmentModel>>(
                     stream: _misCitasStream(),
                     builder: (context, snapshot) {
                       if (snapshot.connectionState == ConnectionState.waiting) {
@@ -477,7 +569,7 @@ class _CitasPageState extends State<CitasPage> {
                         );
                       }
                       
-                      if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                      if (!snapshot.hasData || snapshot.data!.isEmpty) {
                         return Card(
                           elevation: 2,
                           child: Padding(
@@ -503,7 +595,9 @@ class _CitasPageState extends State<CitasPage> {
                         );
                       }
 
-                      final citas = snapshot.data!.docs;
+                      final citas = snapshot.data!;
+                      // Ordenar por fecha (más recientes primero)
+                      citas.sort((a, b) => b.date.compareTo(a.date));
 
                       return ListView.builder(
                         shrinkWrap: true,
@@ -511,8 +605,6 @@ class _CitasPageState extends State<CitasPage> {
                         itemCount: citas.length,
                         itemBuilder: (context, index) {
                           final cita = citas[index];
-                          final data = cita.data() as Map<String, dynamic>;
-                          final estado = data['estado'] ?? 'Pendiente';
 
                           return Dismissible(
                             key: Key(cita.id),
@@ -561,21 +653,24 @@ class _CitasPageState extends State<CitasPage> {
                               return confirm ?? false;
                             },
                             onDismissed: (direction) async {
-                              // Eliminar la cita de Firebase
+                              // Cancelar la cita (cambiar estado) en lugar de eliminar
                               try {
-                                await _firestore.collection('citas').doc(cita.id).delete();
+                                await FirebaseService.updateAppointmentStatus(
+                                  cita.id,
+                                  'cancelled',
+                                );
                                 if (mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(
-                                      content: Text('Cita eliminada correctamente'),
-                                      backgroundColor: Colors.red,
+                                      content: Text('✅ Cita cancelada'),
+                                      backgroundColor: Colors.orange,
                                       duration: Duration(seconds: 2),
                                     ),
                                   );
                                 }
                               } catch (e) {
                                 if (mounted) {
-                                  _mostrarError('Error al eliminar cita: $e');
+                                  _mostrarError('Error al cancelar cita: $e');
                                 }
                               }
                             },
@@ -588,16 +683,14 @@ class _CitasPageState extends State<CitasPage> {
                               child: ListTile(
                                 contentPadding: const EdgeInsets.all(12),
                                 leading: CircleAvatar(
-                                  backgroundColor: estado == 'Pendiente'
-                                      ? Colors.orange
-                                      : Colors.green,
+                                  backgroundColor: cita.statusColor,
                                   child: const Icon(
                                     Icons.medical_services,
                                     color: Colors.white,
                                   ),
                                 ),
                                 title: Text(
-                                  data['clinica'] ?? 'Sin clínica',
+                                  cita.specialty.isNotEmpty ? cita.specialty : 'Sin especialidad',
                                   style: const TextStyle(
                                     fontWeight: FontWeight.bold,
                                     fontSize: 16,
@@ -607,11 +700,12 @@ class _CitasPageState extends State<CitasPage> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     const SizedBox(height: 4),
-                                    Text('📋 ${data['motivo'] ?? 'Sin motivo'}'),
+                                    if (cita.notes != null && cita.notes!.isNotEmpty)
+                                      Text('📋 ${cita.notes}'),
                                     const SizedBox(height: 2),
-                                    Text('👨‍⚕️ ${data['medicoNombre'] ?? 'Sin médico'}'),
-                                    Text('📅 ${_formatearFecha(data['fechaCita'])}'),
-                                    Text('⏰ ${data['horaInicio']} - ${data['horaFin']}'),
+                                    Text('👨‍⚕️ ${cita.doctorName}'),
+                                    Text('📅 ${DateFormat('dd/MM/yyyy').format(cita.date)}'),
+                                    Text('⏰ ${cita.time}'),
                                     const SizedBox(height: 4),
                                     Container(
                                       padding: const EdgeInsets.symmetric(
@@ -619,27 +713,37 @@ class _CitasPageState extends State<CitasPage> {
                                         vertical: 4,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: estado == 'Pendiente'
-                                            ? Colors.orange.shade100
-                                            : Colors.green.shade100,
+                                        color: cita.statusColor.withOpacity(0.2),
                                         borderRadius: BorderRadius.circular(4),
                                       ),
                                       child: Text(
-                                        estado,
+                                        cita.statusText,
                                         style: TextStyle(
                                           fontSize: 12,
-                                          color: estado == 'Pendiente'
-                                              ? Colors.orange.shade900
-                                              : Colors.green.shade900,
+                                          color: cita.statusColor,
                                           fontWeight: FontWeight.bold,
                                         ),
                                       ),
                                     ),
                                   ],
                                 ),
-                                trailing: IconButton(
-                                  icon: const Icon(Icons.cancel, color: Colors.red),
-                                  onPressed: () => _cancelarCita(cita.id),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    // Botón para confirmar (solo si está pendiente)
+                                    if (cita.status == 'pending')
+                                      IconButton(
+                                        icon: const Icon(Icons.check_circle, color: Colors.green),
+                                        tooltip: 'Confirmar cita',
+                                        onPressed: () => _confirmarCita(cita.id),
+                                      ),
+                                    // Botón para cancelar
+                                    IconButton(
+                                      icon: const Icon(Icons.cancel, color: Colors.red),
+                                      tooltip: 'Cancelar cita',
+                                      onPressed: () => _cancelarCita(cita.id),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),

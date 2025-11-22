@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import '../models/appointment_model.dart';
 
 class CalendarPage extends StatefulWidget {
   final String medicoId;
@@ -181,30 +182,133 @@ class _CalendarPageState extends State<CalendarPage> {
       builder: (_) => const Center(child: CircularProgressIndicator()),
     );
 
-    final horaInicio = DateTime(
-      _selectedDay.year,
-      _selectedDay.month,
-      _selectedDay.day,
-      _selectedTime!.hour,
-      _selectedTime!.minute,
-    );
-
-    final horaFin = horaInicio.add(const Duration(hours: 1));
-
     try {
-      await _firestore.collection('citas').add({
-        'pacienteId': _userId,
-        'medicoId': widget.medicoId,
+      // Obtener datos del paciente
+      final user = FirebaseAuth.instance.currentUser;
+      String patientName = user?.email?.split('@')[0] ?? 'Paciente';
+      String patientUid = user?.uid ?? _userId;
+      String patientDocId = patientUid; // Por defecto usar el UID como docId
+      
+      // Intentar obtener nombre y docId del paciente desde Firestore
+      try {
+        final patientDoc = await _firestore.collection('usuarios').doc(patientUid).get();
+        if (patientDoc.exists) {
+          final data = patientDoc.data() as Map<String, dynamic>?;
+          patientName = data?['nombre'] ?? data?['displayName'] ?? patientName;
+          patientDocId = patientUid; // El docId es el mismo que el UID en usuarios
+        }
+      } catch (e) {
+        debugPrint('Error obteniendo nombre del paciente: $e');
+      }
+
+      // Obtener datos del médico - UNIFICADO en usuarios
+      String doctorName = 'Médico';
+      String specialty = 'General';
+      String doctorUserId = widget.medicoId; // Por defecto usar el medicoId
+      
+      try {
+        // Primero buscar en medicos, luego en usuarios
+        var doctorDoc = await _firestore.collection('medicos').doc(widget.medicoId).get();
+        if (doctorDoc.exists) {
+          final data = doctorDoc.data() as Map<String, dynamic>?;
+          // Verificar que el documento tenga uid (no es una especialidad)
+          if (data != null && data.containsKey('uid') && data['uid'] != null) {
+            doctorName = data['nombre'] ?? data['displayName'] ?? doctorName;
+            specialty = data['especialidad'] ?? data['specialty'] ?? specialty;
+            doctorUserId = data['uid'] ?? widget.medicoId;
+            debugPrint('Calendar: Médico encontrado - nombre: $doctorName, UID: $doctorUserId, docId: ${widget.medicoId}');
+          } else {
+            // Si no tiene uid, buscar en usuarios
+            doctorDoc = await _firestore.collection('usuarios').doc(widget.medicoId).get();
+            if (doctorDoc.exists) {
+              final data = doctorDoc.data() as Map<String, dynamic>?;
+              doctorName = data?['nombre'] ?? data?['displayName'] ?? doctorName;
+              specialty = data?['especialidad'] ?? data?['specialty'] ?? specialty;
+              doctorUserId = data?['uid'] ?? widget.medicoId;
+              debugPrint('Calendar: Médico encontrado en usuarios - nombre: $doctorName, UID: $doctorUserId, docId: ${widget.medicoId}');
+            } else {
+              debugPrint('Calendar: ⚠️ No se encontró el médico con ID: ${widget.medicoId}');
+            }
+          }
+        } else {
+          // Si no existe en medicos, buscar en usuarios
+          doctorDoc = await _firestore.collection('usuarios').doc(widget.medicoId).get();
+          if (doctorDoc.exists) {
+            final data = doctorDoc.data() as Map<String, dynamic>?;
+            doctorName = data?['nombre'] ?? data?['displayName'] ?? doctorName;
+            specialty = data?['especialidad'] ?? data?['specialty'] ?? specialty;
+            doctorUserId = data?['uid'] ?? widget.medicoId;
+            debugPrint('Calendar: Médico encontrado en usuarios - nombre: $doctorName, UID: $doctorUserId, docId: ${widget.medicoId}');
+          } else {
+            debugPrint('Calendar: ⚠️ No se encontró el médico con ID: ${widget.medicoId}');
+          }
+        }
+      } catch (e) {
+        debugPrint('Error obteniendo datos del médico: $e');
+      }
+
+      // Crear AppointmentModel
+      // IMPORTANTE: doctorId debe ser el UID del médico para que el Dashboard lo encuentre
+      // doctorDocId puede ser el docId o el UID (depende de cómo esté guardado el médico)
+      final appointment = AppointmentModel(
+        id: '', // Se generará automáticamente
+        doctorId: doctorUserId, // Para Dashboard - usar el UID del médico (importante!)
+        patientId: patientDocId, // Para Dashboard (igual a patientDocId)
+        doctorDocId: widget.medicoId, // ID del documento del médico en /medicos (puede ser docId o UID)
+        patientDocId: patientDocId, // ID del documento del paciente en /usuarios
+        doctorName: doctorName,
+        patientName: patientName,
+        specialty: specialty,
+        date: _selectedDay,
+        time: '${_selectedTime!.hour.toString().padLeft(2, '0')}:${_selectedTime!.minute.toString().padLeft(2, '0')}',
+        status: 'pending',
+        notes: _motivoController.text.isNotEmpty 
+            ? _motivoController.text 
+            : 'Consulta general',
+        symptoms: null,
+        createdAt: DateTime.now(),
+        updatedAt: null,
+      );
+
+      // Guardar en la colección appointments
+      final map = appointment.toMap();
+      map.remove('id'); // Firestore generará el ID
+      final docRef = await _firestore.collection('appointments').add(map);
+      await docRef.update({'id': docRef.id});
+
+      // También guardar en citas para compatibilidad con otras partes de la app
+      final citaData = {
+        'pacienteId': patientUid,
+        'pacienteNombre': patientName, // Agregar nombre del paciente
+        'medicoId': doctorUserId, // Usar el UID del médico (para que coincida con el dashboard)
+        'medicoDocId': widget.medicoId, // También guardar el ID del documento
+        'medicoNombre': doctorName, // Agregar nombre del médico
+        'especialidad': specialty, // Agregar especialidad
         'hospitalId': _hospitalSeleccionado,
         'fechaCita': Timestamp.fromDate(_selectedDay),
-        'horaInicio': Timestamp.fromDate(horaInicio),
-        'horaFin': Timestamp.fromDate(horaFin),
+        'horaInicio': Timestamp.fromDate(DateTime(
+          _selectedDay.year,
+          _selectedDay.month,
+          _selectedDay.day,
+          _selectedTime!.hour,
+          _selectedTime!.minute,
+        )),
+        'horaFin': Timestamp.fromDate(DateTime(
+          _selectedDay.year,
+          _selectedDay.month,
+          _selectedDay.day,
+          _selectedTime!.hour + 1,
+          _selectedTime!.minute,
+        )),
         'motivo': _motivoController.text.isNotEmpty 
             ? _motivoController.text 
             : 'Consulta general',
         'estado': 'Pendiente',
         'creadoEn': FieldValue.serverTimestamp(),
-      });
+      };
+      
+      final citaRef = await _firestore.collection('citas').add(citaData);
+      debugPrint('Calendar: ✅ Cita guardada en citas con ID: ${citaRef.id}, medicoId: $doctorUserId, medicoDocId: ${widget.medicoId}');
 
       Navigator.pop(context); // Cerrar indicador de carga
 

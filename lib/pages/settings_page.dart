@@ -175,6 +175,17 @@ class SettingsPage extends StatelessWidget {
               );
             },
           ),
+          const SizedBox(height: 12),
+          _buildSettingTile(
+            context: context,
+            icon: Icons.bar_chart,
+            iconColor: Colors.teal,
+            title: 'Gráficas y Estadísticas',
+            subtitle: 'Visualiza datos de citas y pacientes',
+            onTap: () {
+              Navigator.pushNamed(context, Routes.graphics);
+            },
+          ),
           const SizedBox(height: 30),
 
           // Botón de cerrar sesión

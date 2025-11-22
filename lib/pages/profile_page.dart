@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../services/firebase_service.dart';
+import '../services/firebase_constants.dart';
+import 'fix_appointments_page.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -19,6 +21,16 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _isLoading = false;
   Map<String, dynamic>? _userData;
   String _selectedRole = 'patient'; // Rol actual del usuario (doctor o patient)
+  
+  // Controllers para el formulario de registro de nuevos usuarios
+  final _newUserFormKey = GlobalKey<FormState>();
+  final TextEditingController _newUserNameController = TextEditingController();
+  final TextEditingController _newUserEmailController = TextEditingController();
+  final TextEditingController _newUserPasswordController = TextEditingController();
+  final TextEditingController _newUserPhoneController = TextEditingController();
+  final TextEditingController _newUserSpecialtyController = TextEditingController();
+  String _newUserRole = 'patient';
+  bool _showNewUserForm = false;
 
   @override
   void initState() {
@@ -31,6 +43,11 @@ class _ProfilePageState extends State<ProfilePage> {
     _nameController.dispose();
     _emailController.dispose();
     _phoneController.dispose();
+    _newUserNameController.dispose();
+    _newUserEmailController.dispose();
+    _newUserPasswordController.dispose();
+    _newUserPhoneController.dispose();
+    _newUserSpecialtyController.dispose();
     super.dispose();
   }
 
@@ -43,19 +60,22 @@ class _ProfilePageState extends State<ProfilePage> {
     });
 
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection('usuarios')
-          .doc(user.uid)
-          .get();
+      // Usar el servicio unificado para obtener el usuario
+      final userModel = await FirebaseService.getUser(user.uid);
 
-      if (doc.exists) {
-        final data = doc.data()!;
+      if (userModel != null) {
         setState(() {
-          _userData = data;
-          _nameController.text = data['displayName'] ?? data['nombre'] ?? '';
+          _userData = {
+            FirebaseFields.displayName: userModel.displayName,
+            FirebaseFields.nombre: userModel.nombre,
+            FirebaseFields.email: userModel.email,
+            FirebaseFields.telefono: userModel.email, // Se actualizará con el campo correcto
+            FirebaseFields.role: userModel.role,
+          };
+          _nameController.text = userModel.displayName ?? userModel.nombre ?? '';
           _emailController.text = user.email ?? '';
-          _phoneController.text = data['telefono'] ?? data['phone'] ?? '';
-          _selectedRole = data['role'] ?? 'patient'; // Guardamos el rol
+          _phoneController.text = ''; // Se cargará del userData si está disponible
+          _selectedRole = userModel.role;
           _isLoading = false;
         });
       } else {
@@ -82,19 +102,19 @@ class _ProfilePageState extends State<ProfilePage> {
     });
 
     try {
-      // Guarda todos los datos del perfil, incluyendo el rol
-      await FirebaseFirestore.instance
-          .collection('usuarios')
-          .doc(user.uid)
-          .set({
-        'displayName': _nameController.text.trim(),
-        'nombre': _nameController.text.trim(),
-        'email': _emailController.text.trim(),
-        'telefono': _phoneController.text.trim(),
-        'role': _selectedRole, // Guardamos el rol actualizado
-        'phone': _phoneController.text.trim(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      // Usar el servicio unificado para actualizar el perfil
+      final userData = {
+        FirebaseFields.displayName: _nameController.text.trim(),
+        FirebaseFields.nombre: _nameController.text.trim(),
+        FirebaseFields.email: _emailController.text.trim(),
+        FirebaseFields.telefono: _phoneController.text.trim(),
+        FirebaseFields.phone: _phoneController.text.trim(),
+        FirebaseFields.role: _selectedRole,
+        FirebaseFields.uid: user.uid,
+      };
+
+      // El servicio unificado maneja la actualización en ambas colecciones si es necesario
+      await FirebaseService.updateUserProfile(user.uid, userData);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -111,6 +131,79 @@ class _ProfilePageState extends State<ProfilePage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error al actualizar perfil: $e'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  /// Registra un nuevo usuario (paciente o médico)
+  Future<void> _registerNewUser() async {
+    if (!_newUserFormKey.currentState!.validate()) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      await FirebaseService.createUser(
+        email: _newUserEmailController.text.trim(),
+        password: _newUserPasswordController.text.trim(),
+        name: _newUserNameController.text.trim(),
+        phone: _newUserPhoneController.text.trim().isNotEmpty 
+            ? _newUserPhoneController.text.trim() 
+            : null,
+        role: _newUserRole,
+        specialty: _newUserRole == 'doctor' && _newUserSpecialtyController.text.trim().isNotEmpty
+            ? _newUserSpecialtyController.text.trim()
+            : null,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '✅ ${_newUserRole == 'doctor' ? 'Médico' : 'Paciente'} registrado exitosamente',
+            ),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        
+        // Limpiar formulario
+        _newUserNameController.clear();
+        _newUserEmailController.clear();
+        _newUserPasswordController.clear();
+        _newUserPhoneController.clear();
+        _newUserSpecialtyController.clear();
+        _newUserRole = 'patient';
+        
+        setState(() {
+          _showNewUserForm = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        String errorMessage = 'Error al registrar usuario';
+        if (e.toString().contains('email-already-in-use')) {
+          errorMessage = 'Este correo ya está registrado';
+        } else if (e.toString().contains('weak-password')) {
+          errorMessage = 'La contraseña es muy débil';
+        } else if (e.toString().contains('invalid-email')) {
+          errorMessage = 'Correo electrónico inválido';
+        }
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMessage),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
           ),
@@ -359,10 +452,256 @@ class _ProfilePageState extends State<ProfilePage> {
                       ),
                     ),
                     const SizedBox(height: 20),
+                    
+                    // Botón para corregir citas (solo visible para doctores)
+                    if (_selectedRole == 'doctor' || _userData?['role'] == 'doctor')
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const Divider(height: 40),
+                          TextButton.icon(
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => const FixAppointmentsPage(),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.build),
+                            label: const Text('Corregir Citas de Jessica Rodriguez'),
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.all(16),
+                              backgroundColor: Colors.orange.shade50,
+                              foregroundColor: Colors.orange.shade900,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                        ],
+                      ),
+                    
+                    // Sección para registrar nuevos usuarios
+                    const Divider(height: 40),
+                    _buildNewUserSection(),
+                    const SizedBox(height: 20),
                   ],
                 ),
               ),
             ),
+    );
+  }
+  
+  Widget _buildNewUserSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Título y botón para expandir/colapsar
+        InkWell(
+          onTap: () {
+            setState(() {
+              _showNewUserForm = !_showNewUserForm;
+            });
+          },
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.blue.withOpacity(0.3)),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.person_add,
+                  color: Colors.blue[700],
+                  size: 28,
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    'Registrar Nuevo Usuario',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF1976D2),
+                    ),
+                  ),
+                ),
+                Icon(
+                  _showNewUserForm ? Icons.expand_less : Icons.expand_more,
+                  color: Colors.blue[700],
+                ),
+              ],
+            ),
+          ),
+        ),
+        
+        // Formulario de registro (expandible)
+        if (_showNewUserForm) ...[
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.blue.withOpacity(0.2)),
+            ),
+            child: Form(
+              key: _newUserFormKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    'Datos del Nuevo Usuario',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF1976D2),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  _buildTextField(
+                    controller: _newUserNameController,
+                    label: 'Nombre completo',
+                    icon: Icons.person_outline,
+                    hint: 'Ingresa el nombre',
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Por favor ingresa el nombre';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  _buildTextField(
+                    controller: _newUserEmailController,
+                    label: 'Correo electrónico',
+                    icon: Icons.email_outlined,
+                    hint: 'correo@ejemplo.com',
+                    keyboardType: TextInputType.emailAddress,
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Por favor ingresa el correo';
+                      }
+                      if (!value.contains('@')) {
+                        return 'Ingresa un correo válido';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  _buildTextField(
+                    controller: _newUserPasswordController,
+                    label: 'Contraseña',
+                    icon: Icons.lock_outline,
+                    hint: 'Mínimo 6 caracteres',
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Por favor ingresa una contraseña';
+                      }
+                      if (value.length < 6) {
+                        return 'La contraseña debe tener al menos 6 caracteres';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  _buildTextField(
+                    controller: _newUserPhoneController,
+                    label: 'Teléfono (opcional)',
+                    icon: Icons.phone_outlined,
+                    hint: 'Número de teléfono',
+                    keyboardType: TextInputType.phone,
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  // Selector de rol
+                  DropdownButtonFormField<String>(
+                    value: _newUserRole,
+                    decoration: InputDecoration(
+                      labelText: 'Tipo de Usuario',
+                      prefixIcon: const Icon(Icons.badge_outlined),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      filled: true,
+                      fillColor: Colors.white,
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'patient', child: Text('Paciente')),
+                      DropdownMenuItem(value: 'doctor', child: Text('Médico')),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) {
+                        setState(() => _newUserRole = v);
+                      }
+                    },
+                  ),
+                  
+                  // Campo de especialidad (solo para médicos)
+                  if (_newUserRole == 'doctor') ...[
+                    const SizedBox(height: 16),
+                    _buildTextField(
+                      controller: _newUserSpecialtyController,
+                      label: 'Especialidad (opcional)',
+                      icon: Icons.medical_services_outlined,
+                      hint: 'Ej: Cardiología, Pediatría, etc.',
+                    ),
+                  ],
+                  
+                  const SizedBox(height: 24),
+                  
+                  // Botón de registro
+                  Container(
+                    height: 50,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      gradient: LinearGradient(
+                        colors: _newUserRole == 'doctor'
+                            ? [Colors.teal, Colors.teal.shade300]
+                            : [Colors.green, Colors.green.shade300],
+                        begin: Alignment.centerLeft,
+                        end: Alignment.centerRight,
+                      ),
+                    ),
+                    child: ElevatedButton(
+                      onPressed: _isLoading ? null : _registerNewUser,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.transparent,
+                        shadowColor: Colors.transparent,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                      child: _isLoading
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              ),
+                            )
+                          : Text(
+                              'Registrar ${_newUserRole == 'doctor' ? 'Médico' : 'Paciente'}',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
