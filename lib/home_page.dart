@@ -8,6 +8,7 @@ import 'routes.dart';
 import 'bloc/dashboard_page.dart';
 import 'services/firebase_service.dart';
 import 'services/firebase_constants.dart';
+import 'utils/app_colors.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -103,6 +104,10 @@ class _HomePageState extends State<HomePage> {
           // Solo agregar si no existe ya en la lista
           if (uid != null && !allSpecialists.any((s) => s['uid'] == uid)) {
             data['id'] = doc.id;
+            // Asegurar que tenga el campo especialidad (puede ser 'specialty' o 'especialidad')
+            if (!data.containsKey('especialidad') && data.containsKey('specialty')) {
+              data['especialidad'] = data['specialty'];
+            }
             allSpecialists.add(data);
           }
         }
@@ -129,12 +134,8 @@ class _HomePageState extends State<HomePage> {
     final userName = user?.email?.split('@')[0] ?? 'Usuario';
 
     return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Colors.blue.shade50, Colors.white],
-        ),
+      decoration: const BoxDecoration(
+        gradient: AppColors.backgroundGradient,
       ),
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
@@ -145,35 +146,25 @@ class _HomePageState extends State<HomePage> {
             Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF1976D2), Color(0xFF42A5F5)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.blue.withOpacity(0.3),
-                    blurRadius: 15,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
+                gradient: AppColors.primaryGradient,
+                borderRadius: BorderRadius.circular(AppStyles.cardRadius),
+                boxShadow: AppColors.elevatedShadow,
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     '¡Hola, $userName! 👋',
-                    style: const TextStyle(
-                      fontSize: 26,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
+                    style: AppTextStyles.heading2.copyWith(
+                      color: AppColors.white,
                     ),
                   ),
                   const SizedBox(height: 8),
-                  const Text(
+                  Text(
                     '¿En qué podemos ayudarte hoy?',
-                    style: TextStyle(fontSize: 16, color: Colors.white70),
+                    style: AppTextStyles.bodyLarge.copyWith(
+                      color: AppColors.white.withOpacity(0.95),
+                    ),
                   ),
                 ],
               ),
@@ -192,7 +183,7 @@ class _HomePageState extends State<HomePage> {
                   width: 4,
                   height: 24,
                   decoration: BoxDecoration(
-                    color: Colors.blue[700],
+                      color: AppColors.primaryBlue,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -202,7 +193,7 @@ class _HomePageState extends State<HomePage> {
                   style: TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF1976D2),
+                    color: AppColors.primaryBlue,
                   ),
                 ),
               ],
@@ -224,9 +215,7 @@ class _HomePageState extends State<HomePage> {
         _optionCard(
           icon: Icons.calendar_month_rounded,
           title: 'Agendar\nCita',
-          gradient: const LinearGradient(
-            colors: [Color(0xFF4CAF50), Color(0xFF81C784)],
-          ),
+          gradient: AppColors.primaryGradient,
           onTap: () {
             if (_specialists.isNotEmpty) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -236,7 +225,7 @@ class _HomePageState extends State<HomePage> {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
                   content: Text('No hay especialistas disponibles'),
-                  backgroundColor: Colors.orange,
+                  backgroundColor: AppColors.softPurple,
                 ),
               );
             }
@@ -245,14 +234,12 @@ class _HomePageState extends State<HomePage> {
         _optionCard(
           icon: Icons.healing_rounded,
           title: 'Consejos\nMédicos',
-          gradient: const LinearGradient(
-            colors: [Color(0xFFFF7043), Color(0xFFFFAB91)],
-          ),
+          gradient: AppColors.purpleGradient,
           onTap: () {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: const Text('Consejos de salud próximamente'),
-                backgroundColor: Colors.orange[700],
+                backgroundColor: AppColors.softPurple,
                 behavior: SnackBarBehavior.floating,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
@@ -273,9 +260,7 @@ class _HomePageState extends State<HomePage> {
         _optionCard(
           icon: Icons.dashboard_rounded,
           title: 'Ver\nCitas',
-          gradient: const LinearGradient(
-            colors: [Color(0xFF1976D2), Color(0xFF42A5F5)],
-          ),
+          gradient: AppColors.primaryGradient,
           onTap: () {
             Navigator.pushNamed(
               context,
@@ -286,9 +271,7 @@ class _HomePageState extends State<HomePage> {
         _optionCard(
           icon: Icons.analytics_rounded,
           title: 'Estadísticas',
-          gradient: const LinearGradient(
-            colors: [Color(0xFF9C27B0), Color(0xFFBA68C8)],
-          ),
+          gradient: AppColors.bluePurpleGradient,
           onTap: () {
             Navigator.pushNamed(context, Routes.graphics);
           },
@@ -310,14 +293,8 @@ class _HomePageState extends State<HomePage> {
         height: 140,
         decoration: BoxDecoration(
           gradient: gradient,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 10,
-              offset: const Offset(0, 5),
-            ),
-          ],
+          borderRadius: BorderRadius.circular(AppStyles.cardRadius),
+          boxShadow: AppColors.cardShadow,
         ),
         child: Material(
           color: Colors.transparent,
@@ -342,7 +319,7 @@ class _HomePageState extends State<HomePage> {
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 15,
-                    color: Colors.white,
+                    color: AppColors.white,
                   ),
                 ),
               ],
@@ -353,6 +330,59 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  // Función auxiliar para obtener el icono del especialista
+  IconData _getSpecialistIcon(Map<String, dynamic> specialist) {
+    // Intentar obtener icono desde Firebase
+    try {
+      final iconoString = specialist['icono']?.toString();
+      if (iconoString != null && iconoString.isNotEmpty) {
+        // Intentar parsear como hex string
+        if (iconoString.startsWith('0x')) {
+          final iconCode = int.tryParse(iconoString);
+          if (iconCode != null) {
+            return IconData(iconCode, fontFamily: 'MaterialIcons');
+          }
+        } else {
+          // Si es solo un número, agregar 0x
+          final iconCode = int.tryParse('0x$iconoString');
+          if (iconCode != null) {
+            return IconData(iconCode, fontFamily: 'MaterialIcons');
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error parseando icono: $e');
+    }
+    
+    // Si no hay icono válido, usar icono por defecto basado en especialidad
+    final especialidad = (specialist['especialidad'] ?? specialist['specialty'] ?? '').toString().toLowerCase();
+    
+    // Mapear especialidades a iconos (usando iconos comunes de Material Icons)
+    if (especialidad.contains('cardio')) {
+      return Icons.favorite;
+    } else if (especialidad.contains('pediatr') || especialidad.contains('pediatra')) {
+      return Icons.child_care;
+    } else if (especialidad.contains('ginecolog')) {
+      return Icons.female;
+    } else if (especialidad.contains('dermatolog')) {
+      return Icons.medical_services;
+    } else if (especialidad.contains('neurolog')) {
+      return Icons.psychology;
+    } else if (especialidad.contains('oftalmolog') || especialidad.contains('ojo')) {
+      return Icons.remove_red_eye;
+    } else if (especialidad.contains('traumatolog') || especialidad.contains('ortoped')) {
+      return Icons.healing;
+    } else if (especialidad.contains('psiquiatr')) {
+      return Icons.psychology;
+    } else if (especialidad.contains('general')) {
+      return Icons.local_hospital;
+    } else if (especialidad.contains('urgenc')) {
+      return Icons.emergency;
+    } else {
+      return Icons.medical_services; // Icono por defecto siempre válido
+    }
+  }
+
   Widget _specialistList() {
     if (_isLoading) {
       return const Center(
@@ -360,7 +390,7 @@ class _HomePageState extends State<HomePage> {
           children: [
             CircularProgressIndicator(),
             SizedBox(height: 16),
-            Text('Cargando especialistas...', style: TextStyle(color: Colors.grey)),
+            Text('Cargando especialistas...', style: TextStyle(color: AppColors.mediumGrey)),
           ],
         ),
       );
@@ -370,7 +400,7 @@ class _HomePageState extends State<HomePage> {
       return Center(
         child: Column(
           children: [
-            Text(_errorMessage!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.red)),
+            Text(_errorMessage!, textAlign: TextAlign.center, style: TextStyle(color: AppColors.error)),
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: _loadSpecialists,
@@ -383,17 +413,19 @@ class _HomePageState extends State<HomePage> {
 
     if (_specialists.isEmpty) {
       return const Center(
-        child: Text('No hay especialistas disponibles.', style: TextStyle(color: Colors.grey)),
+        child: Text('No hay especialistas disponibles.', style: TextStyle(color: AppColors.mediumGrey)),
       );
     }
 
     return Column(
       children: _specialists.map((specialist) {
         final color = Color(int.parse(specialist['color'] ?? '0xFF2196F3'));
+        final iconData = _getSpecialistIcon(specialist);
+        
         return Container(
           margin: const EdgeInsets.only(bottom: 12),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: AppColors.white,
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
@@ -412,22 +444,47 @@ class _HomePageState extends State<HomePage> {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
-                IconData(int.parse(specialist['icono'] ?? '0xe0b0'), fontFamily: 'MaterialIcons'),
+                iconData,
                 color: color,
                 size: 28,
               ),
             ),
             title: Text(
-              specialist['nombre'] ?? 'Sin nombre',
+              specialist['nombre'] ?? specialist['displayName'] ?? 'Sin nombre',
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
-            subtitle: Text(
-              specialist['especialidad'] ?? 'Sin especialidad',
-              style: TextStyle(color: Colors.grey[600], fontSize: 14),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 4),
+                // Mostrar especialidad de forma más visible
+                Row(
+                  children: [
+                    Icon(
+                      Icons.medical_services,
+                      size: 16,
+                      color: AppColors.primaryBlue.withOpacity(0.7),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        specialist['especialidad'] ?? 
+                        specialist['specialty'] ?? 
+                        'Sin especialidad',
+                        style: TextStyle(
+                          color: AppColors.primaryBlue,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
             trailing: Icon(
               Icons.arrow_forward_ios_rounded,
-              color: Colors.grey[400],
+              color: AppColors.lightGrey,
               size: 18,
             ),
             onTap: () {
@@ -447,16 +504,14 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.white,
       appBar: AppBar(
         elevation: 0,
         backgroundColor: Colors.transparent,
-        title: const Text(
+        title: Text(
           'MediConnect',
-          style: TextStyle(
-            color: Color(0xFF1976D2),
-            fontWeight: FontWeight.bold,
-            fontSize: 24,
+          style: AppTextStyles.heading2.copyWith(
+            color: AppColors.primaryBlue,
           ),
         ),
         centerTitle: true,
@@ -468,23 +523,17 @@ class _HomePageState extends State<HomePage> {
             : const SettingsPage(),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 10,
-              offset: const Offset(0, -5),
-            ),
-          ],
+          boxShadow: AppColors.cardShadow,
         ),
         child: BottomNavigationBar(
           currentIndex: _selectedIndex,
           onTap: _onItemTapped,
-          selectedItemColor: const Color(0xFF1976D2),
-          unselectedItemColor: Colors.grey,
+          selectedItemColor: AppColors.primaryBlue,
+          unselectedItemColor: AppColors.mediumGrey,
           selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold),
           type: BottomNavigationBarType.fixed,
           elevation: 0,
-          backgroundColor: Colors.white,
+          backgroundColor: AppColors.white,
           items: const [
             BottomNavigationBarItem(icon: Icon(Icons.home_rounded), label: 'Inicio'),
             BottomNavigationBarItem(icon: Icon(Icons.message_rounded), label: 'Mensajes'),

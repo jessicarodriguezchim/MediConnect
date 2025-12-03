@@ -6,6 +6,8 @@ import '../routes.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../services/firebase_service.dart';
 import '../services/firebase_constants.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../utils/app_colors.dart';
 
 /// Página del Dashboard Médico
 /// 
@@ -146,9 +148,9 @@ class _DashboardPageState extends State<DashboardPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Dashboard Médico'),
-        backgroundColor: Colors.teal,
-        foregroundColor: Colors.white,
+        title: Text('Dashboard Médico', style: AppTextStyles.heading3),
+        backgroundColor: AppColors.white,
+        foregroundColor: AppColors.softBlack,
         elevation: 0,
         actions: [
           IconButton(
@@ -221,21 +223,11 @@ class _DashboardPageState extends State<DashboardPage> {
         children: [
           // Header con saludo
           Container(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(AppStyles.paddingLarge),
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Colors.teal.shade600, Colors.teal.shade400],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.teal.withOpacity(0.3),
-                  blurRadius: 10,
-                  offset: const Offset(0, 5),
-                ),
-              ],
+              gradient: AppColors.primaryGradient,
+              borderRadius: BorderRadius.circular(AppStyles.cardRadius),
+              boxShadow: AppColors.elevatedShadow,
             ),
             child: Row(
               children: [
@@ -256,20 +248,17 @@ class _DashboardPageState extends State<DashboardPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
+                      Text(
                         'Dashboard Médico',
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                        style: AppTextStyles.heading2.copyWith(
+                          color: AppColors.white,
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 8),
                       Text(
                         'Resumen de tu actividad',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.white.withOpacity(0.9),
+                        style: AppTextStyles.bodyMedium.copyWith(
+                          color: AppColors.white.withOpacity(0.95),
                         ),
                       ),
                     ],
@@ -286,21 +275,15 @@ class _DashboardPageState extends State<DashboardPage> {
                   Navigator.pushNamed(context, Routes.appointments);
                 },
                 child: Card(
-                  elevation: 4,
+                  elevation: 0,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(AppStyles.cardRadius),
                   ),
                   child: Container(
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(16),
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          Colors.teal.shade600,
-                          Colors.teal.shade400,
-                        ],
-                      ),
+                      borderRadius: BorderRadius.circular(AppStyles.cardRadius),
+                      gradient: AppColors.bluePurpleGradient,
+                      boxShadow: AppColors.cardShadow,
                     ),
                     padding: const EdgeInsets.all(20),
                     child: Row(
@@ -322,20 +305,17 @@ class _DashboardPageState extends State<DashboardPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
+                              Text(
                                 'Gestionar Citas',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
+                                style: AppTextStyles.heading3.copyWith(
+                                  color: AppColors.white,
                                 ),
                               ),
-                              const SizedBox(height: 4),
+                              const SizedBox(height: 6),
                               Text(
                                 'Ver y administrar todas tus citas',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.white.withOpacity(0.9),
+                                style: AppTextStyles.bodySmall.copyWith(
+                                  color: AppColors.white.withOpacity(0.95),
                                 ),
                               ),
                             ],
@@ -358,19 +338,17 @@ class _DashboardPageState extends State<DashboardPage> {
                 children: [
                   Container(
                     width: 4,
-                    height: 24,
+                    height: 28,
                     decoration: BoxDecoration(
-                      color: Colors.teal.shade700,
+                      color: AppColors.primaryBlue,
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
                   const SizedBox(width: 12),
-                  const Text(
+                  Text(
                     'Indicadores Principales',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
+                    style: AppTextStyles.heading3.copyWith(
+                      color: AppColors.softBlack,
                     ),
                   ),
                 ],
@@ -391,7 +369,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 'Total de Citas',
                 (stats['totalAppointments'] ?? 0).toString(),
                 Icons.calendar_today_rounded,
-                Colors.blue,
+                AppColors.primaryBlue,
                 'Todas las citas registradas',
               ),
               // 2. Citas próximas o pendientes
@@ -399,7 +377,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 'Citas Pendientes',
                 (stats['pendingAppointments'] ?? 0).toString(),
                 Icons.pending_actions_rounded,
-                Colors.orange,
+                AppColors.softPurple,
                 'Citas por confirmar',
               ),
               // 3. Total de pacientes registrados
@@ -407,7 +385,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 'Pacientes',
                 (stats['totalPatients'] ?? 0).toString(),
                 Icons.people_rounded,
-                Colors.green,
+                AppColors.primaryBlue,
                 'Pacientes registrados',
               ),
               // Bonus: Citas de hoy
@@ -415,15 +393,112 @@ class _DashboardPageState extends State<DashboardPage> {
                 'Citas Hoy',
                 (stats['todayAppointments'] ?? 0).toString(),
                 Icons.today_rounded,
-                Colors.purple,
+                AppColors.softPurple,
                 'Citas programadas hoy',
               ),
             ],
           ),
           const SizedBox(height: 24),
+          
+          // Botón de salir de sesión
+          _buildLogoutButton(),
+          const SizedBox(height: 24),
         ],
       ),
     );
+  }
+
+  /// Construye el botón de salir de sesión
+  Widget _buildLogoutButton() {
+    return Center(
+      child: Card(
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppStyles.cardRadius),
+        ),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppStyles.cardRadius),
+            gradient: AppColors.primaryGradient,
+            boxShadow: AppColors.cardShadow,
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () => _handleLogout(),
+              borderRadius: BorderRadius.circular(AppStyles.cardRadius),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.logout_rounded,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                    const SizedBox(width: 12),
+                    const Text(
+                      'Salir de Sesión',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Maneja el proceso de cierre de sesión
+  Future<void> _handleLogout() async {
+    // Mostrar diálogo de confirmación
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Cerrar Sesión'),
+          content: const Text('¿Estás seguro de que deseas salir de tu sesión?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancelar'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.primaryBlue,
+              ),
+              child: const Text('Salir'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirm == true) {
+      try {
+        await FirebaseAuth.instance.signOut();
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, Routes.login);
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error al cerrar sesión: $e'),
+              backgroundColor: AppColors.error,
+            ),
+          );
+        }
+      }
+    }
   }
 
   // Mantenemos los métodos auxiliares:
@@ -433,7 +508,7 @@ class _DashboardPageState extends State<DashboardPage> {
       body: Center(
         child: Text(
           message,
-          style: const TextStyle(color: Colors.red, fontSize: 18),
+          style: TextStyle(color: AppColors.error, fontSize: 18),
           textAlign: TextAlign.center,
         ),
       ),
@@ -461,65 +536,55 @@ class _DashboardPageState extends State<DashboardPage> {
   ) {
     debugPrint('🎴 _buildStatCard: $title = "$value"');
     return Card(
-      elevation: 4,
+      elevation: 0,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(AppStyles.cardRadius),
       ),
       child: Container(
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              color.withOpacity(0.1),
-              color.withOpacity(0.05),
-            ],
-          ),
+          color: AppColors.white,
+          borderRadius: BorderRadius.circular(AppStyles.cardRadius),
+          boxShadow: AppColors.cardShadow,
         ),
         child: Padding(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(AppStyles.paddingLarge),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.2),
+                  color: color.withOpacity(0.1),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
                   icon,
-                  size: 32,
+                  size: 28,
                   color: color,
                 ),
               ),
               const SizedBox(height: 16),
               Text(
                 value,
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: _getDarkerColor(color),
+                style: AppTextStyles.heading1.copyWith(
+                  fontSize: 36,
+                  color: color,
                 ),
               ),
               const SizedBox(height: 8),
               Text(
                 title,
                 textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.black87,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
+                style: AppTextStyles.heading3.copyWith(
+                  color: AppColors.softBlack,
                 ),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 6),
               Text(
                 subtitle,
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.grey[600],
-                  fontSize: 12,
+                style: AppTextStyles.bodySmall.copyWith(
+                  color: AppColors.mediumGrey,
                 ),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,

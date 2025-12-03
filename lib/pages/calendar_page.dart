@@ -170,10 +170,23 @@ class _CalendarPageState extends State<CalendarPage> {
   }
 
   Future<void> _agendarCita() async {
+    // Verificar que el usuario esté autenticado primero
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      _mostrarError('❌ No estás autenticado. Por favor, inicia sesión.');
+      return;
+    }
+
     if (_selectedTime == null || _hospitalSeleccionado == null) {
       _mostrarError('Faltan datos para agendar la cita');
       return;
     }
+
+    debugPrint('🔵 ========================================');
+    debugPrint('🔵 INICIANDO PROCESO DE AGENDAR CITA');
+    debugPrint('🔵 Usuario autenticado: ${user.uid}');
+    debugPrint('🔵 Email: ${user.email}');
+    debugPrint('🔵 ========================================');
 
     // Mostrar indicador de carga
     showDialog(
@@ -184,9 +197,8 @@ class _CalendarPageState extends State<CalendarPage> {
 
     try {
       // Obtener datos del paciente
-      final user = FirebaseAuth.instance.currentUser;
-      String patientName = user?.email?.split('@')[0] ?? 'Paciente';
-      String patientUid = user?.uid ?? _userId;
+      String patientName = user.email?.split('@')[0] ?? 'Paciente';
+      String patientUid = user.uid;
       String patientDocId = patientUid; // Por defecto usar el UID como docId
       
       // Intentar obtener nombre y docId del paciente desde Firestore
@@ -270,53 +282,56 @@ class _CalendarPageState extends State<CalendarPage> {
         updatedAt: null,
       );
 
-      // Guardar en la colección appointments
-      final map = appointment.toMap();
-      map.remove('id'); // Firestore generará el ID
-      final docRef = await _firestore.collection('appointments').add(map);
-      await docRef.update({'id': docRef.id});
+      // Verificar que el usuario esté autenticado
+      if (user == null || patientUid.isEmpty) {
+        throw Exception('Usuario no autenticado. Por favor, inicia sesión.');
+      }
 
-      // También guardar en citas para compatibilidad con otras partes de la app
-      final citaData = {
-        'pacienteId': patientUid,
-        'pacienteNombre': patientName, // Agregar nombre del paciente
-        'medicoId': doctorUserId, // Usar el UID del médico (para que coincida con el dashboard)
-        'medicoDocId': widget.medicoId, // También guardar el ID del documento
-        'medicoNombre': doctorName, // Agregar nombre del médico
-        'especialidad': specialty, // Agregar especialidad
-        'hospitalId': _hospitalSeleccionado,
-        'fechaCita': Timestamp.fromDate(_selectedDay),
-        'horaInicio': Timestamp.fromDate(DateTime(
-          _selectedDay.year,
-          _selectedDay.month,
-          _selectedDay.day,
-          _selectedTime!.hour,
-          _selectedTime!.minute,
-        )),
-        'horaFin': Timestamp.fromDate(DateTime(
-          _selectedDay.year,
-          _selectedDay.month,
-          _selectedDay.day,
-          _selectedTime!.hour + 1,
-          _selectedTime!.minute,
-        )),
-        'motivo': _motivoController.text.isNotEmpty 
-            ? _motivoController.text 
-            : 'Consulta general',
-        'estado': 'Pendiente',
-        'creadoEn': FieldValue.serverTimestamp(),
-      };
-      
-      final citaRef = await _firestore.collection('citas').add(citaData);
-      debugPrint('Calendar: ✅ Cita guardada en citas con ID: ${citaRef.id}, medicoId: $doctorUserId, medicoDocId: ${widget.medicoId}');
+      debugPrint('🔵 Iniciando guardado de cita...');
+      debugPrint('   Paciente: $patientName (UID: $patientUid)');
+      debugPrint('   Médico: $doctorName (UID: $doctorUserId)');
+      debugPrint('   Fecha: ${_selectedDay.toString()}');
+      debugPrint('   Hora: ${_selectedTime!.hour}:${_selectedTime!.minute}');
+
+      // Guardar en la colección appointments
+      DocumentReference? appointmentRef;
+      try {
+        debugPrint('🔵 Guardando en colección appointments...');
+        final map = appointment.toMap();
+        map.remove('id'); // Firestore generará el ID
+        
+        debugPrint('   Datos a guardar: ${map.toString()}');
+        
+        appointmentRef = await _firestore.collection('appointments').add(map);
+        await appointmentRef.update({'id': appointmentRef.id});
+        
+        debugPrint('✅ Cita guardada exitosamente en appointments con ID: ${appointmentRef.id}');
+        
+        // Verificar que se guardó
+        final verifyAppointment = await _firestore.collection('appointments').doc(appointmentRef.id).get();
+        if (verifyAppointment.exists) {
+          debugPrint('✅ Verificación: Cita existe en appointments');
+        } else {
+          debugPrint('❌ ERROR: Cita NO se encontró después de guardar en appointments');
+        }
+      } catch (e, stackTrace) {
+        debugPrint('❌ ERROR al guardar en appointments: $e');
+        debugPrint('Stack trace: $stackTrace');
+        Navigator.pop(context); // Cerrar indicador de carga
+        _mostrarError('Error al guardar cita en appointments: ${e.toString()}');
+        return;
+      }
 
       Navigator.pop(context); // Cerrar indicador de carga
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('✅ Cita agendada correctamente'),
+        SnackBar(
+          content: Text(
+            '✅ Cita agendada correctamente\n'
+            'ID: ${appointmentRef?.id ?? "N/A"}',
+          ),
           backgroundColor: Colors.green,
-          duration: Duration(seconds: 2),
+          duration: const Duration(seconds: 3),
         ),
       );
 
@@ -325,9 +340,50 @@ class _CalendarPageState extends State<CalendarPage> {
         _hospitalSeleccionado = null;
         _motivoController.clear();
       });
-    } catch (e) {
-      Navigator.pop(context); // Cerrar indicador de carga
-      _mostrarError('Error al agendar cita: $e');
+    } catch (e, stackTrace) {
+      debugPrint('❌ ERROR GENERAL al agendar cita: $e');
+      debugPrint('Stack trace completo: $stackTrace');
+      
+      // Cerrar indicador de carga si está abierto
+      if (Navigator.canPop(context)) {
+        Navigator.pop(context);
+      }
+      
+      // Mostrar error detallado al usuario
+      String errorMessage = 'Error al agendar cita';
+      
+      if (e.toString().contains('permission-denied') || 
+          e.toString().contains('PERMISSION_DENIED')) {
+        errorMessage = '❌ Error de permisos en Firestore. Verifica las reglas de seguridad en Firebase Console.';
+      } else if (e.toString().contains('unauthenticated') || 
+                 e.toString().contains('UNAUTHENTICATED')) {
+        errorMessage = '❌ No estás autenticado. Por favor, inicia sesión nuevamente.';
+      } else if (e.toString().contains('network') || 
+                 e.toString().contains('NETWORK')) {
+        errorMessage = '❌ Error de conexión. Verifica tu conexión a internet.';
+      } else {
+        errorMessage = '❌ Error al agendar cita: ${e.toString()}';
+      }
+      
+      _mostrarError(errorMessage);
+      
+      // Mostrar también en SnackBar para que sea más visible
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMessage),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'Ver detalles',
+              textColor: Colors.white,
+              onPressed: () {
+                debugPrint('Detalles del error: $e\n$stackTrace');
+              },
+            ),
+          ),
+        );
+      }
     }
   }
 
@@ -355,14 +411,22 @@ class _CalendarPageState extends State<CalendarPage> {
     if (confirm != true) return;
 
     try {
-      await _firestore.collection('citas').doc(citaId).delete();
+      // Usar solo appointments - actualizar estado a cancelled
+      await _firestore.collection('appointments').doc(citaId).update({
+        'status': 'cancelled',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      
+      debugPrint('✅ Cita cancelada en appointments: $citaId');
+      
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Cita cancelada'),
+          content: Text('✅ Cita cancelada correctamente'),
           backgroundColor: Colors.orange,
         ),
       );
     } catch (e) {
+      debugPrint('❌ ERROR al cancelar cita: $e');
       _mostrarError('Error al cancelar: $e');
     }
   }
@@ -377,10 +441,259 @@ class _CalendarPageState extends State<CalendarPage> {
     );
   }
 
+  /// Abre formulario completo para editar la cita
+  Future<void> _abrirFormularioEdicionCita(DocumentSnapshot citaDoc) async {
+    final data = citaDoc.data() as Map<String, dynamic>;
+    final citaId = citaDoc.id;
+    
+    debugPrint('🔵 Abriendo formulario de edición completa para cita: $citaId');
+    
+    // Leer datos del formato appointments (nuevo)
+    DateTime fechaInicio;
+    String horaStr;
+    String motivo;
+    
+    if (data['date'] != null) {
+      fechaInicio = data['date'] is Timestamp 
+          ? (data['date'] as Timestamp).toDate()
+          : data['date'] as DateTime;
+      horaStr = data['time'] ?? '10:00';
+      motivo = data['notes'] ?? '';
+    } else {
+      // Fallback al formato antiguo si existe
+      fechaInicio = data['horaInicio'] != null
+          ? (data['horaInicio'] as Timestamp).toDate()
+          : DateTime.now();
+      horaStr = '${fechaInicio.hour.toString().padLeft(2, '0')}:${fechaInicio.minute.toString().padLeft(2, '0')}';
+      motivo = data['motivo'] ?? '';
+    }
+    
+    // Parsear hora
+    final partesHora = horaStr.split(':');
+    final hora = partesHora.length > 0 ? int.parse(partesHora[0]) : 10;
+    final minuto = partesHora.length > 1 ? int.parse(partesHora[1]) : 0;
+    
+    // Controladores para el formulario
+    final fechaController = TextEditingController(
+      text: DateFormat('dd/MM/yyyy').format(fechaInicio),
+    );
+    final horaController = TextEditingController(text: horaStr);
+    final motivoController = TextEditingController(text: motivo);
+    
+    DateTime fechaSeleccionada = DateTime(fechaInicio.year, fechaInicio.month, fechaInicio.day);
+    TimeOfDay horaSeleccionada = TimeOfDay(hour: hora, minute: minuto);
+    
+    if (!mounted) return;
+    
+    await showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.edit_calendar, color: Colors.blue),
+              SizedBox(width: 8),
+              Text('Editar Cita'),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Campo de fecha
+                InkWell(
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: fechaSeleccionada,
+                      firstDate: DateTime.now(),
+                      lastDate: DateTime.now().add(const Duration(days: 365)),
+                      locale: const Locale('es', 'ES'),
+                    );
+                    if (picked != null) {
+                      setDialogState(() {
+                        fechaSeleccionada = picked;
+                        fechaController.text = DateFormat('dd/MM/yyyy').format(picked);
+                      });
+                    }
+                  },
+                  child: TextField(
+                    controller: fechaController,
+                    enabled: false,
+                    decoration: const InputDecoration(
+                      labelText: 'Fecha',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.calendar_today),
+                      suffixIcon: Icon(Icons.arrow_drop_down),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // Campo de hora
+                InkWell(
+                  onTap: () async {
+                    final picked = await showTimePicker(
+                      context: context,
+                      initialTime: horaSeleccionada,
+                    );
+                    if (picked != null) {
+                      setDialogState(() {
+                        horaSeleccionada = picked;
+                        horaController.text = 
+                            '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+                      });
+                    }
+                  },
+                  child: TextField(
+                    controller: horaController,
+                    enabled: false,
+                    decoration: const InputDecoration(
+                      labelText: 'Hora',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.access_time),
+                      suffixIcon: Icon(Icons.arrow_drop_down),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // Campo de motivo
+                TextField(
+                  controller: motivoController,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    labelText: 'Motivo de la consulta',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.medical_information),
+                    hintText: 'Ej: Consulta general, Chequeo rutinario...',
+                  ),
+                  autofocus: false,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                fechaController.dispose();
+                horaController.dispose();
+                motivoController.dispose();
+                Navigator.pop(context);
+              },
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              onPressed: () async {
+                final nuevoMotivo = motivoController.text.trim();
+                final nuevaFecha = fechaSeleccionada;
+                final nuevaHora = horaController.text.trim();
+                
+                debugPrint('💾 Guardando cambios en la cita...');
+                debugPrint('   Nueva fecha: ${DateFormat('dd/MM/yyyy').format(nuevaFecha)}');
+                debugPrint('   Nueva hora: $nuevaHora');
+                debugPrint('   Nuevo motivo: "$nuevoMotivo"');
+                
+                // Cerrar el diálogo primero
+                Navigator.pop(context);
+                
+                // Esperar un momento
+                await Future.delayed(const Duration(milliseconds: 100));
+                
+                // Actualizar la cita
+                if (mounted) {
+                  await _actualizarCitaCompleta(
+                    citaId,
+                    nuevaFecha,
+                    nuevaHora,
+                    nuevoMotivo,
+                  );
+                }
+                
+                // Limpiar controladores
+                fechaController.dispose();
+                horaController.dispose();
+                motivoController.dispose();
+              },
+              child: const Text('Guardar Cambios'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  /// Actualiza todos los campos de la cita en Firebase
+  Future<void> _actualizarCitaCompleta(
+    String citaId,
+    DateTime nuevaFecha,
+    String nuevaHora,
+    String nuevoMotivo,
+  ) async {
+    debugPrint('🔄 Actualizando cita completa: $citaId');
+    
+    try {
+      // Parsear la hora
+      final partesHora = nuevaHora.split(':');
+      final hora = int.parse(partesHora[0]);
+      final minuto = int.parse(partesHora[1]);
+      
+      // Crear fecha completa con hora
+      final fechaInicio = DateTime(
+        nuevaFecha.year,
+        nuevaFecha.month,
+        nuevaFecha.day,
+        hora,
+        minuto,
+      );
+      
+      // Actualizar en appointments (única colección)
+      await _firestore.collection('appointments').doc(citaId).update({
+        'date': Timestamp.fromDate(fechaInicio),
+        'time': nuevaHora,
+        'notes': nuevoMotivo.isEmpty ? 'Consulta general' : nuevoMotivo,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      
+      debugPrint('✅ Cita actualizada exitosamente en appointments: $citaId');
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Cita actualizada correctamente'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ ERROR al actualizar cita completa: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Error al actualizar: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
+  // Usar solo appointments - colección moderna y estándar
   Stream<QuerySnapshot> _streamMisCitas() {
     return _firestore
-        .collection('citas')
-        .where('pacienteId', isEqualTo: _userId)
+        .collection('appointments')
+        .where('patientId', isEqualTo: _userId)
         .snapshots();
   }
 
@@ -597,18 +910,38 @@ class _CalendarPageState extends State<CalendarPage> {
 
                 final citas = snapshot.data!.docs;
 
-                // Sort appointments by horaInicio (client-side sorting)
+                // Sort appointments by date (client-side sorting)
                 citas.sort((a, b) {
                   final aData = a.data() as Map<String, dynamic>;
                   final bData = b.data() as Map<String, dynamic>;
-                  final aHoraInicio = aData['horaInicio'] as Timestamp?;
-                  final bHoraInicio = bData['horaInicio'] as Timestamp?;
                   
-                  if (aHoraInicio == null && bHoraInicio == null) return 0;
-                  if (aHoraInicio == null) return 1;
-                  if (bHoraInicio == null) return -1;
+                  // Usar formato appointments (date)
+                  DateTime? aDate;
+                  DateTime? bDate;
                   
-                  return aHoraInicio.compareTo(bHoraInicio);
+                  if (aData['date'] != null) {
+                    aDate = aData['date'] is Timestamp 
+                        ? (aData['date'] as Timestamp).toDate()
+                        : aData['date'] as DateTime;
+                  } else if (aData['horaInicio'] != null) {
+                    // Fallback al formato antiguo
+                    aDate = (aData['horaInicio'] as Timestamp).toDate();
+                  }
+                  
+                  if (bData['date'] != null) {
+                    bDate = bData['date'] is Timestamp 
+                        ? (bData['date'] as Timestamp).toDate()
+                        : bData['date'] as DateTime;
+                  } else if (bData['horaInicio'] != null) {
+                    // Fallback al formato antiguo
+                    bDate = (bData['horaInicio'] as Timestamp).toDate();
+                  }
+                  
+                  if (aDate == null && bDate == null) return 0;
+                  if (aDate == null) return 1;
+                  if (bDate == null) return -1;
+                  
+                  return aDate.compareTo(bDate);
                 });
 
                 return ListView.builder(
@@ -618,68 +951,154 @@ class _CalendarPageState extends State<CalendarPage> {
                   itemBuilder: (context, index) {
                     final cita = citas[index];
                     final data = cita.data() as Map<String, dynamic>;
-                    final inicio = (data['horaInicio'] as Timestamp).toDate();
-                    final fin = (data['horaFin'] as Timestamp).toDate();
-                    final hospitalNombre = _obtenerNombreHospital(data['hospitalId']);
-                    final estado = data['estado'] ?? 'Pendiente';
+                    
+                    // Usar formato de appointments (nuevo)
+                    DateTime inicio;
+                    DateTime fin;
+                    if (data['date'] != null) {
+                      final fecha = data['date'] is Timestamp 
+                          ? (data['date'] as Timestamp).toDate()
+                          : data['date'] as DateTime;
+                      
+                      // Parsear hora
+                      final timeStr = data['time'] ?? '10:00';
+                      final partesHora = timeStr.split(':');
+                      final hora = int.parse(partesHora[0]);
+                      final minuto = partesHora.length > 1 ? int.parse(partesHora[1]) : 0;
+                      
+                      inicio = DateTime(
+                        fecha.year,
+                        fecha.month,
+                        fecha.day,
+                        hora,
+                        minuto,
+                      );
+                      fin = inicio.add(const Duration(hours: 1));
+                    } else {
+                      // Fallback al formato antiguo si existe
+                      inicio = data['horaInicio'] != null 
+                          ? (data['horaInicio'] as Timestamp).toDate()
+                          : DateTime.now();
+                      fin = data['horaFin'] != null
+                          ? (data['horaFin'] as Timestamp).toDate()
+                          : inicio.add(const Duration(hours: 1));
+                    }
+                    
+                    final hospitalNombre = data['doctorName'] ?? 'Médico';
+                    final motivo = data['notes'] ?? data['motivo'] ?? 'Sin motivo';
+                    
+                    // Convertir estado de inglés a español
+                    String estadoEsp = 'Pendiente';
+                    final estadoEn = (data['status'] ?? data['estado'] ?? 'pending').toString().toLowerCase();
+                    switch (estadoEn) {
+                      case 'pending':
+                      case 'pendiente':
+                        estadoEsp = 'Pendiente';
+                        break;
+                      case 'confirmed':
+                      case 'confirmada':
+                        estadoEsp = 'Confirmada';
+                        break;
+                      case 'completed':
+                      case 'completada':
+                        estadoEsp = 'Completada';
+                        break;
+                      case 'cancelled':
+                      case 'cancelada':
+                        estadoEsp = 'Cancelada';
+                        break;
+                    }
 
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      elevation: 2,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.all(12),
-                        leading: CircleAvatar(
-                          backgroundColor: estado == 'Pendiente' 
-                              ? Colors.orange 
-                              : Colors.green,
-                          child: const Icon(Icons.medical_services, color: Colors.white),
+                    return InkWell(
+                      // 🔵 Hacer que toda la cita sea clickeable para editar
+                      onTap: () {
+                        debugPrint('🔵 Cita clickeada para editar completa: ${cita.id}');
+                        _abrirFormularioEdicionCita(cita);
+                      },
+                      borderRadius: BorderRadius.circular(12),
+                      child: Card(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        elevation: 2,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                        title: Text(
-                          hospitalNombre,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.all(12),
+                          leading: CircleAvatar(
+                            backgroundColor: estadoEsp == 'Pendiente' 
+                                ? Colors.orange 
+                                : Colors.green,
+                            child: const Icon(Icons.medical_services, color: Colors.white),
                           ),
-                        ),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const SizedBox(height: 4),
-                            Text('📋 ${data['motivo'] ?? 'Sin motivo'}'),
-                            const SizedBox(height: 2),
-                            Text('📅 ${_formatearFechaHora(inicio)}'),
-                            Text('⏰ ${_formatearFechaHora(fin)}'),
-                            const SizedBox(height: 4),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: estado == 'Pendiente' 
-                                    ? Colors.orange.shade100 
-                                    : Colors.green.shade100,
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                estado,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: estado == 'Pendiente' 
-                                      ? Colors.orange.shade900 
-                                      : Colors.green.shade900,
-                                  fontWeight: FontWeight.bold,
+                          title: Text(
+                            hospitalNombre,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const SizedBox(height: 4),
+                              Text('📋 $motivo'),
+                              const SizedBox(height: 2),
+                              Text('📅 ${_formatearFechaHora(inicio)}'),
+                              Text('⏰ ${_formatearFechaHora(fin)}'),
+                              const SizedBox(height: 4),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: estadoEsp == 'Pendiente' 
+                                      ? Colors.orange.shade100 
+                                      : Colors.green.shade100,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  estadoEsp,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: estadoEsp == 'Pendiente' 
+                                        ? Colors.orange.shade900 
+                                        : Colors.green.shade900,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
                               ),
+                              const SizedBox(height: 4),
+                              // Indicador visual de que es clickeable
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.touch_app,
+                                    size: 14,
+                                    color: Colors.blue.withOpacity(0.6),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Toca para editar cita completa',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.blue.withOpacity(0.6),
+                                      fontStyle: FontStyle.italic,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                          trailing: GestureDetector(
+                            // Prevenir que el clic en el botón active el InkWell del padre
+                            onTap: () {}, // Consumir el evento
+                            behavior: HitTestBehavior.opaque,
+                            child: IconButton(
+                              icon: const Icon(Icons.cancel, color: Colors.red),
+                              onPressed: () => _cancelarCita(cita.id),
                             ),
-                          ],
-                        ),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.cancel, color: Colors.red),
-                          onPressed: () => _cancelarCita(cita.id),
+                          ),
                         ),
                       ),
                     );

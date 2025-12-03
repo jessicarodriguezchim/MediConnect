@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'routes.dart';
 import 'services/firebase_service.dart';
+import 'utils/app_colors.dart';
 
 class LoginPage extends StatefulWidget{
   const LoginPage({super.key});
@@ -31,10 +32,35 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
 
   String _selectedRole = 'patient';
   String _registerRole = 'patient';
+  String? _selectedSpecialty; // Especialidad seleccionada
   bool _obscurePassword = true;
   bool _obscureRegisterPassword = true;
   bool _obscureConfirmPassword = true;
   bool _isLoading = false;
+  
+  // Lista de especialidades médicas disponibles
+  final List<String> _especialidades = [
+    'Medicina General',
+    'Cardiología',
+    'Pediatría',
+    'Ginecología',
+    'Dermatología',
+    'Neurología',
+    'Oftalmología',
+    'Otorrinolaringología',
+    'Traumatología',
+    'Psiquiatría',
+    'Oncología',
+    'Urología',
+    'Endocrinología',
+    'Gastroenterología',
+    'Neumología',
+    'Reumatología',
+    'Anestesiología',
+    'Medicina Interna',
+    'Cirugía General',
+    'Ortopedia',
+  ];
 
   @override
   void initState() {
@@ -121,8 +147,8 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
             ? registerPhoneController.text.trim() 
             : null,
         role: _registerRole,
-        specialty: _registerRole == 'doctor' && registerSpecialtyController.text.trim().isNotEmpty
-            ? registerSpecialtyController.text.trim()
+        specialty: _registerRole == 'doctor' && _selectedSpecialty != null && _selectedSpecialty!.isNotEmpty
+            ? _selectedSpecialty
             : null,
       );
 
@@ -133,7 +159,7 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
           content: Text(
             '✅ ${_registerRole == 'doctor' ? 'Médico' : 'Paciente'} registrado exitosamente. Inicia sesión.',
           ),
-          backgroundColor: Colors.green,
+          backgroundColor: AppColors.success,
           duration: const Duration(seconds: 3),
         ),
       );
@@ -149,6 +175,7 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
       registerPhoneController.clear();
       registerSpecialtyController.clear();
       _registerRole = 'patient';
+      _selectedSpecialty = null;
 
     } on FirebaseAuthException catch (e) {
       String message = _getRegisterErrorMessage(e.code);
@@ -158,7 +185,7 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(message),
-          backgroundColor: Colors.red,
+          backgroundColor: AppColors.error,
           duration: const Duration(seconds: 3),
         ),
       );
@@ -168,7 +195,7 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error al registrar: $e'),
-          backgroundColor: Colors.red,
+          backgroundColor: AppColors.error,
         ),
       );
     } finally {
@@ -231,10 +258,44 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
 
       if (!mounted) return;
 
+      // Validar que el rol seleccionado coincida con el rol real del usuario
+      if (userRole != null) {
+        // Normalizar los roles para comparación
+        final realRole = userRole.toLowerCase().trim();
+        final selectedRole = _selectedRole.toLowerCase().trim();
+        
+        if (realRole != selectedRole) {
+          // Cerrar sesión porque el rol no coincide
+          await _auth.signOut();
+          
+          // Mostrar alerta según el caso
+          String alertTitle;
+          String alertMessage;
+          
+          if (realRole == 'doctor' && selectedRole == 'patient') {
+            alertTitle = 'Acceso Restringido';
+            alertMessage = 'No puedes acceder como paciente. Tu cuenta es de tipo Médico. Por favor, selecciona "Médico" en el selector de rol.';
+          } else if (realRole == 'patient' && selectedRole == 'doctor') {
+            alertTitle = 'Acceso Restringido';
+            alertMessage = 'No puedes acceder como médico. Tu cuenta es de tipo Paciente. Por favor, selecciona "Paciente" en el selector de rol.';
+          } else {
+            alertTitle = 'Rol Incorrecto';
+            alertMessage = 'El rol seleccionado no coincide con tu rol registrado. Por favor, selecciona el rol correcto.';
+          }
+          
+          await _showRoleMismatchAlert(alertTitle, alertMessage);
+          
+          if (mounted) {
+            setState(() => _isLoading = false);
+          }
+          return; // Detener el proceso de login
+        }
+      }
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('¡Bienvenido ${userCredential.user!.email}!'),
-          backgroundColor: Colors.green,
+          backgroundColor: AppColors.success,
           duration: const Duration(seconds: 2),
         ),
       );
@@ -258,7 +319,7 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(message),
-          backgroundColor: Colors.red,
+          backgroundColor: AppColors.error,
           duration: const Duration(seconds: 3),
         ),
       );
@@ -271,7 +332,7 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error al iniciar sesión: ${e.toString()}'),
-          backgroundColor: Colors.red,
+          backgroundColor: AppColors.error,
           duration: const Duration(seconds: 4),
         ),
       );
@@ -307,6 +368,60 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
     }
   }
 
+  /// Muestra un diálogo de alerta cuando el rol seleccionado no coincide con el rol real
+  Future<void> _showRoleMismatchAlert(String title, String message) async {
+    if (!mounted) return;
+    
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppStyles.cardRadius),
+          ),
+          title: Row(
+            children: [
+              Icon(
+                Icons.warning_amber_rounded,
+                color: AppColors.warning,
+                size: 28,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  title,
+                  style: AppTextStyles.heading3.copyWith(
+                    color: AppColors.softBlack,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            message,
+            style: AppTextStyles.bodyMedium.copyWith(
+              color: AppColors.mediumGrey,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: Text(
+                'Entendido',
+                style: AppTextStyles.button.copyWith(
+                  color: AppColors.primaryBlue,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
 
   Widget _buildTextField({
     required TextEditingController controller,
@@ -319,34 +434,39 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
     Widget? suffixIcon,
   }) {
     return Container(
+      margin: const EdgeInsets.only(bottom: AppStyles.spacingMedium),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(AppStyles.inputRadius),
+        boxShadow: AppColors.cardShadow,
       ),
       child: TextFormField(
         controller: controller,
         obscureText: obscureText,
         keyboardType: keyboardType,
+        style: AppTextStyles.bodyLarge,
         decoration: InputDecoration(
           labelText: label,
           hintText: hint,
-          labelStyle: TextStyle(color: Colors.grey[600]),
-          prefixIcon: Icon(icon, color: Colors.blue[700]),
+          labelStyle: AppTextStyles.label.copyWith(color: AppColors.mediumGrey),
+          hintStyle: AppTextStyles.bodyMedium.copyWith(color: AppColors.mediumGrey),
+          prefixIcon: Icon(icon, color: AppColors.primaryBlue, size: 22),
           suffixIcon: suffixIcon,
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: BorderSide.none,
+            borderRadius: BorderRadius.circular(AppStyles.inputRadius),
+            borderSide: BorderSide(color: AppColors.lightGrey, width: 1),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(AppStyles.inputRadius),
+            borderSide: BorderSide(color: AppColors.lightGrey, width: 1),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(AppStyles.inputRadius),
+            borderSide: BorderSide(color: AppColors.primaryBlue, width: 2),
           ),
           filled: true,
-          fillColor: Colors.white,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          fillColor: AppColors.white,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
         ),
         validator: validator,
       ),
@@ -356,8 +476,11 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[50],
-      body: SafeArea(
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: AppColors.backgroundGradient,
+        ),
+        child: SafeArea(
         child: Column(
           children: [
             // Logo y título
@@ -368,33 +491,32 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: AppColors.white,
                       shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.blue.withOpacity(0.1),
-                          blurRadius: 20,
-                          offset: const Offset(0, 10),
-                        ),
-                      ],
+                      boxShadow: AppColors.cardShadow,
                     ),
                     child: ClipOval(
                       child: Image.asset(
                         'assets/images/login_2opcion.jpg',
                         width: 80,
                         height: 80,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Icon(
+                            Icons.local_hospital,
+                            size: 60,
+                            color: AppColors.primaryBlue,
+                          );
+                        },
                       ),
                     ),
                   ),
                   const SizedBox(height: 16),
-                  const Text(
+                  Text(
                     'MediConnect',
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF1976D2),
-                      letterSpacing: 1.2,
+                    style: AppTextStyles.heading2.copyWith(
+                      color: AppColors.primaryBlue,
+                      letterSpacing: 0.5,
                     ),
                   ),
                 ],
@@ -405,26 +527,18 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
             Container(
               margin: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 20.0),
               decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
+                color: AppColors.white,
+                borderRadius: BorderRadius.circular(AppStyles.cardRadius),
+                boxShadow: AppColors.cardShadow,
               ),
               child: TabBar(
                 controller: _tabController,
                 indicator: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF1976D2), Color(0xFF42A5F5)],
-                  ),
+                  borderRadius: BorderRadius.circular(AppStyles.cardRadius),
+                  gradient: AppColors.primaryGradient,
                 ),
-                labelColor: Colors.white,
-                unselectedLabelColor: Colors.grey[600],
+                labelColor: AppColors.white,
+                unselectedLabelColor: AppColors.mediumGrey,
                 labelStyle: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
@@ -456,29 +570,43 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
                           Text(
                             'Bienvenido de nuevo',
                             textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: Colors.grey[600],
-                              fontWeight: FontWeight.w400,
+                            style: AppTextStyles.bodyMedium.copyWith(
+                              color: AppColors.mediumGrey,
                             ),
                           ),
                           const SizedBox(height: 32),
                           
                           // Selector de rol
-                          DropdownButtonFormField<String>(
-                            value: _selectedRole,
-                            decoration: InputDecoration(
-                              labelText: 'Rol',
-                              labelStyle: TextStyle(color: Colors.grey[600]),
-                              prefixIcon: Icon(Icons.badge_outlined, color: Colors.blue[700]),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(16),
-                                borderSide: BorderSide.none,
-                              ),
-                              filled: true,
-                              fillColor: Colors.white,
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                          Container(
+                            margin: const EdgeInsets.only(bottom: AppStyles.spacingMedium),
+                            decoration: BoxDecoration(
+                              color: AppColors.white,
+                              borderRadius: BorderRadius.circular(AppStyles.inputRadius),
+                              boxShadow: AppColors.cardShadow,
                             ),
+                            child: DropdownButtonFormField<String>(
+                              value: _selectedRole,
+                              style: AppTextStyles.bodyLarge,
+                              decoration: InputDecoration(
+                                labelText: 'Rol',
+                                labelStyle: AppTextStyles.label.copyWith(color: AppColors.mediumGrey),
+                                prefixIcon: Icon(Icons.badge_outlined, color: AppColors.primaryBlue, size: 22),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(AppStyles.inputRadius),
+                                  borderSide: BorderSide(color: AppColors.lightGrey, width: 1),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(AppStyles.inputRadius),
+                                  borderSide: BorderSide(color: AppColors.lightGrey, width: 1),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(AppStyles.inputRadius),
+                                  borderSide: BorderSide(color: AppColors.primaryBlue, width: 2),
+                                ),
+                                filled: true,
+                                fillColor: AppColors.white,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                              ),
                             items: const [
                               DropdownMenuItem(value: 'patient', child: Text('Paciente')),
                               DropdownMenuItem(value: 'doctor', child: Text('Médico')),
@@ -486,6 +614,7 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
                             onChanged: (v) {
                               if (v != null) setState(() => _selectedRole = v);
                             },
+                            ),
                           ),
                           const SizedBox(height: 24),
                           
@@ -513,7 +642,7 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
                             suffixIcon: IconButton(
                               icon: Icon(
                                 _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                                color: Colors.grey[600],
+                                color: AppColors.mediumGrey,
                               ),
                               onPressed: () {
                                 setState(() {
@@ -532,49 +661,36 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
                           
                           // Botón de iniciar sesión
                           Container(
-                            height: 56,
+                            height: AppStyles.buttonHeight,
                             decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(16),
-                              gradient: const LinearGradient(
-                                colors: [Color(0xFF1976D2), Color(0xFF42A5F5)],
-                                begin: Alignment.centerLeft,
-                                end: Alignment.centerRight,
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.blue.withOpacity(0.3),
-                                  blurRadius: 12,
-                                  offset: const Offset(0, 6),
-                                ),
-                              ],
+                              borderRadius: BorderRadius.circular(AppStyles.buttonRadius),
+                              gradient: AppColors.primaryGradient,
+                              boxShadow: AppColors.elevatedShadow,
                             ),
-                            child: ElevatedButton(
-                              onPressed: _isLoading ? null : _handleLogin,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.transparent,
-                                shadowColor: Colors.transparent,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: _isLoading ? null : _handleLogin,
+                                borderRadius: BorderRadius.circular(AppStyles.buttonRadius),
+                                child: Container(
+                                  alignment: Alignment.center,
+                                  child: _isLoading
+                                      ? const SizedBox(
+                                          height: 24,
+                                          width: 24,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2.5,
+                                            color: AppColors.white,
+                                          ),
+                                        )
+                                      : Text(
+                                          'Iniciar Sesión',
+                                          style: AppTextStyles.button.copyWith(
+                                            color: AppColors.white,
+                                          ),
+                                        ),
                                 ),
                               ),
-                              child: _isLoading
-                                  ? const SizedBox(
-                                      height: 20,
-                                      width: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white,
-                                      ),
-                                    )
-                                  : const Text(
-                                      'Iniciar Sesión',
-                                      style: TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.white,
-                                        letterSpacing: 0.5,
-                                      ),
-                                    ),
                             ),
                           ),
                           const SizedBox(height: 32),
@@ -594,10 +710,8 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
                           Text(
                             'Crea tu cuenta',
                             textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: Colors.grey[600],
-                              fontWeight: FontWeight.w400,
+                            style: AppTextStyles.bodyMedium.copyWith(
+                              color: AppColors.mediumGrey,
                             ),
                           ),
                           const SizedBox(height: 32),
@@ -643,7 +757,7 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
                             suffixIcon: IconButton(
                               icon: Icon(
                                 _obscureRegisterPassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                                color: Colors.grey[600],
+                                color: AppColors.mediumGrey,
                               ),
                               onPressed: () {
                                 setState(() {
@@ -672,7 +786,7 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
                             suffixIcon: IconButton(
                               icon: Icon(
                                 _obscureConfirmPassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                                color: Colors.grey[600],
+                                color: AppColors.mediumGrey,
                               ),
                               onPressed: () {
                                 setState(() {
@@ -702,85 +816,147 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
                           const SizedBox(height: 20),
                           
                           // Selector de rol
-                          DropdownButtonFormField<String>(
-                            value: _registerRole,
-                            decoration: InputDecoration(
-                              labelText: 'Tipo de Usuario',
-                              labelStyle: TextStyle(color: Colors.grey[600]),
-                              prefixIcon: Icon(Icons.badge_outlined, color: Colors.blue[700]),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(16),
-                                borderSide: BorderSide.none,
-                              ),
-                              filled: true,
-                              fillColor: Colors.white,
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                          Container(
+                            margin: const EdgeInsets.only(bottom: AppStyles.spacingMedium),
+                            decoration: BoxDecoration(
+                              color: AppColors.white,
+                              borderRadius: BorderRadius.circular(AppStyles.inputRadius),
+                              boxShadow: AppColors.cardShadow,
                             ),
-                            items: const [
-                              DropdownMenuItem(value: 'patient', child: Text('Paciente')),
-                              DropdownMenuItem(value: 'doctor', child: Text('Médico')),
-                            ],
-                            onChanged: (v) {
-                              if (v != null) setState(() => _registerRole = v);
-                            },
+                            child: DropdownButtonFormField<String>(
+                              value: _registerRole,
+                              style: AppTextStyles.bodyLarge,
+                              decoration: InputDecoration(
+                                labelText: 'Tipo de Usuario',
+                                labelStyle: AppTextStyles.label.copyWith(color: AppColors.mediumGrey),
+                                prefixIcon: Icon(Icons.badge_outlined, color: AppColors.primaryBlue, size: 22),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(AppStyles.inputRadius),
+                                  borderSide: BorderSide(color: AppColors.lightGrey, width: 1),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(AppStyles.inputRadius),
+                                  borderSide: BorderSide(color: AppColors.lightGrey, width: 1),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(AppStyles.inputRadius),
+                                  borderSide: BorderSide(color: AppColors.primaryBlue, width: 2),
+                                ),
+                                filled: true,
+                                fillColor: AppColors.white,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                              ),
+                              items: const [
+                                DropdownMenuItem(value: 'patient', child: Text('Paciente')),
+                                DropdownMenuItem(value: 'doctor', child: Text('Médico')),
+                              ],
+                              onChanged: (v) {
+                                if (v != null) {
+                                  setState(() {
+                                    _registerRole = v;
+                                    // Limpiar especialidad si cambia a paciente
+                                    if (v == 'patient') {
+                                      _selectedSpecialty = null;
+                                      registerSpecialtyController.clear();
+                                    }
+                                  });
+                                }
+                              },
+                            ),
                           ),
                           const SizedBox(height: 20),
                           
-                          // Campo de especialidad (solo para médicos)
-                          if (_registerRole == 'doctor')
-                            _buildTextField(
-                              controller: registerSpecialtyController,
-                              label: 'Especialidad (opcional)',
-                              icon: Icons.medical_services_outlined,
-                              hint: 'Ej: Cardiología',
+                          // Selector de especialidad (solo para médicos)
+                          if (_registerRole == 'doctor') ...[
+                            Container(
+                              margin: const EdgeInsets.only(bottom: AppStyles.spacingMedium),
+                              decoration: BoxDecoration(
+                                color: AppColors.white,
+                                borderRadius: BorderRadius.circular(AppStyles.inputRadius),
+                                boxShadow: AppColors.cardShadow,
+                              ),
+                              child: DropdownButtonFormField<String>(
+                                value: _selectedSpecialty,
+                                style: AppTextStyles.bodyLarge,
+                                decoration: InputDecoration(
+                                  labelText: 'Especialidad',
+                                  hintText: 'Selecciona tu especialidad',
+                                  labelStyle: AppTextStyles.label.copyWith(color: AppColors.mediumGrey),
+                                  prefixIcon: Icon(Icons.medical_services_outlined, color: AppColors.primaryBlue, size: 22),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(AppStyles.inputRadius),
+                                    borderSide: BorderSide(color: AppColors.lightGrey, width: 1),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(AppStyles.inputRadius),
+                                    borderSide: BorderSide(color: AppColors.lightGrey, width: 1),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(AppStyles.inputRadius),
+                                    borderSide: BorderSide(color: AppColors.primaryBlue, width: 2),
+                                  ),
+                                  filled: true,
+                                  fillColor: AppColors.white,
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                                ),
+                                items: _especialidades.map((especialidad) {
+                                  return DropdownMenuItem<String>(
+                                    value: especialidad,
+                                    child: Text(especialidad),
+                                  );
+                                }).toList(),
+                                onChanged: (value) {
+                                  setState(() {
+                                    _selectedSpecialty = value;
+                                    if (value != null) {
+                                      registerSpecialtyController.text = value;
+                                    } else {
+                                      registerSpecialtyController.clear();
+                                    }
+                                  });
+                                },
+                                validator: (value) {
+                                  if (_registerRole == 'doctor' && (value == null || value.isEmpty)) {
+                                    return 'Por favor selecciona una especialidad';
+                                  }
+                                  return null;
+                                },
+                              ),
                             ),
-                          if (_registerRole == 'doctor') const SizedBox(height: 20),
+                          ],
                           
                           // Botón de registro
                           Container(
-                            height: 56,
+                            height: AppStyles.buttonHeight,
                             decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(16),
-                              gradient: const LinearGradient(
-                                colors: [Color(0xFF1976D2), Color(0xFF42A5F5)],
-                                begin: Alignment.centerLeft,
-                                end: Alignment.centerRight,
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.blue.withOpacity(0.3),
-                                  blurRadius: 12,
-                                  offset: const Offset(0, 6),
-                                ),
-                              ],
+                              borderRadius: BorderRadius.circular(AppStyles.buttonRadius),
+                              gradient: AppColors.bluePurpleGradient,
+                              boxShadow: AppColors.elevatedShadow,
                             ),
-                            child: ElevatedButton(
-                              onPressed: _isLoading ? null : _handleRegister,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.transparent,
-                                shadowColor: Colors.transparent,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: _isLoading ? null : _handleRegister,
+                                borderRadius: BorderRadius.circular(AppStyles.buttonRadius),
+                                child: Container(
+                                  alignment: Alignment.center,
+                                  child: _isLoading
+                                      ? const SizedBox(
+                                          height: 24,
+                                          width: 24,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2.5,
+                                            color: AppColors.white,
+                                          ),
+                                        )
+                                      : Text(
+                                          'Registrarse como ${_registerRole == 'doctor' ? 'Médico' : 'Paciente'}',
+                                          style: AppTextStyles.button.copyWith(
+                                            color: AppColors.white,
+                                          ),
+                                        ),
                                 ),
                               ),
-                              child: _isLoading
-                                  ? const SizedBox(
-                                      height: 20,
-                                      width: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white,
-                                      ),
-                                    )
-                                  : Text(
-                                      'Registrarse como ${_registerRole == 'doctor' ? 'Médico' : 'Paciente'}',
-                                      style: const TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.white,
-                                        letterSpacing: 0.5,
-                                      ),
-                                    ),
                             ),
                           ),
                           const SizedBox(height: 32),
@@ -792,6 +968,7 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
               ),
             ),
           ],
+        ),
         ),
       ),
     );
